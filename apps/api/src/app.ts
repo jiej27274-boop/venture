@@ -139,6 +139,32 @@ const profileUpdateSchema = z.object({ displayName: z.string().trim().min(2).max
 const emailSchema = z.object({ email: z.string().trim().email() });
 const tokenSchema = z.object({ token: z.string().trim().min(20) });
 const passwordResetSchema = z.object({ token: z.string().trim().min(20), newPassword: z.string().min(8).max(128), confirmPassword: z.string().min(8).max(128) }).refine((value) => value.newPassword === value.confirmPassword, { message: "password_mismatch", path: ["confirmPassword"] });
+type Pagination = { page: number; pageSize: number; total: number; totalPages: number };
+
+function readPagination(context: { req: { query: (name: string) => string | undefined } }): { page: number; pageSize: number } {
+  const rawPage = Number(context.req.query("page") ?? 1);
+  const rawPageSize = Number(context.req.query("pageSize") ?? 12);
+  const page = Number.isFinite(rawPage) ? Math.max(1, Math.floor(rawPage)) : 1;
+  const pageSize = Number.isFinite(rawPageSize) ? Math.min(50, Math.max(1, Math.floor(rawPageSize))) : 12;
+  return { page, pageSize };
+}
+
+function paginate<T>(items: T[], input: { page: number; pageSize: number }): { items: T[]; pagination: Pagination } {
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / input.pageSize));
+  const page = Math.min(input.page, totalPages);
+  const start = (page - 1) * input.pageSize;
+  return {
+    items: items.slice(start, start + input.pageSize),
+    pagination: { page, pageSize: input.pageSize, total, totalPages },
+  };
+}
+
+function includesQuery(values: string[], query?: string): boolean {
+  const normalized = query?.trim().toLocaleLowerCase();
+  return !normalized || values.some((value) => value.toLocaleLowerCase().includes(normalized));
+}
+
 const loginFailures = new Map<string, { count: number; blockedUntil: number }>();
 const loginLimit = { maxFailures: 5, blockMs: 15 * 60 * 1000 };
 const loginKey = (request: Request, identifier: string) => `${request.headers.get("x-forwarded-for") ?? "local"}:${identifier.trim().toLowerCase()}`;
@@ -512,14 +538,16 @@ export function createApp({ database }: { database: VentureDatabase }) {
     return context.json({ view }, 201);
   });
 
-  app.get("/api/projects", (context) => context.json({
-    projects: listPublishedProjects(database, {
+  app.get("/api/projects", (context) => {
+    const filtered = listPublishedProjects(database, {
       q: context.req.query("q"),
       industry: context.req.query("industry"),
       region: context.req.query("region"),
       stage: context.req.query("stage"),
-    }),
-  }));
+    });
+    const result = paginate(filtered, readPagination(context));
+    return context.json({ projects: result.items, pagination: result.pagination });
+  });
 
   app.get("/api/projects/:projectId", (context) => {
     const project = getPublicProject(database, context.req.param("projectId"));
@@ -582,9 +610,22 @@ export function createApp({ database }: { database: VentureDatabase }) {
     return context.json({ bp }, 201);
   });
 
-  app.get("/api/organizations", (context) =>
-    context.json({ organizations: listPublicOrganizations(database) }),
-  );
+  app.get("/api/organizations", (context) => {
+    const query = context.req.query("q");
+    const type = context.req.query("type");
+    const region = context.req.query("region");
+    const all = listPublicOrganizations(database).filter((organization) => {
+      const item = organization as unknown as { id: string; name: string; type: string; tagline: string; description: string; region: string; focus: string[] };
+      return (!type || item.type === type) && (!region || item.region === region) && includesQuery([item.name, item.tagline, item.description, item.region, ...item.focus], query);
+    });
+    const result = paginate(all, readPagination(context));
+    return context.json({ organizations: result.items, pagination: result.pagination });
+  });
+
+  app.get("/api/organizations/:organizationId", (context) => {
+    const organization = listPublicOrganizations(database).find((candidate) => (candidate as unknown as { id: string }).id === context.req.param("organizationId"));
+    return organization ? context.json({ organization }) : context.json({ error: "organization_not_found" }, 404);
+  });
 
   app.post("/api/contact-requests", async (context) => {
     const parsed = contactRequestSchema.safeParse(await context.req.json().catch(() => null));
@@ -604,9 +645,15 @@ export function createApp({ database }: { database: VentureDatabase }) {
     return context.json({ request }, 201);
   });
 
-  app.get("/api/articles", (context) =>
-    context.json({ articles: listPublishedArticles(database) }),
-  );
+  app.get("/api/articles", (context) => {
+    const query = context.req.query("q");
+    const category = context.req.query("category");
+    const all = listPublishedArticles(database).filter((article) =>
+      (!category || article.category === category) && includesQuery([article.title, article.summary, article.content, article.category], query),
+    );
+    const result = paginate(all, readPagination(context));
+    return context.json({ articles: result.items, pagination: result.pagination });
+  });
 
   app.get("/api/articles/:slug", (context) => {
     const article = getPublishedArticle(database, context.req.param("slug"));
@@ -730,9 +777,21 @@ export function createApp({ database }: { database: VentureDatabase }) {
     });
   });
 
-  app.get("/api/government-contacts", (context) =>
-    context.json({ contacts: listGovernmentContacts(database) }),
-  );
+  app.get("/api/government-contacts", (context) => {
+    const query = context.req.query("q");
+    const region = context.req.query("region");
+    const all = listGovernmentContacts(database).filter((contact) => {
+      const item = contact as unknown as { name: string; organizationName: string; title: string; region: string; industries: string[] };
+      return (!region || item.region === region) && includesQuery([item.name, item.organizationName, item.title, item.region, ...item.industries], query);
+    });
+    const result = paginate(all, readPagination(context));
+    return context.json({ contacts: result.items, pagination: result.pagination });
+  });
+
+  app.get("/api/government-contacts/:contactId", (context) => {
+    const contact = listGovernmentContacts(database).find((candidate) => (candidate as unknown as { id: string }).id === context.req.param("contactId"));
+    return contact ? context.json({ contact }) : context.json({ error: "government_contact_not_found" }, 404);
+  });
 
   const auditQuery = (context: { req: { query: (name: string) => string | undefined } }) => ({
     q: context.req.query("q"),

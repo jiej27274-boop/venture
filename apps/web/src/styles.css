@@ -430,3 +430,4 @@ body { color:#1d1d1f; background:#f5f5f7; -webkit-font-smoothing:antialiased; }
   .view-home .portal-stat b { font-size: 18px; }
   .view-home .portal-stat small { font-size: 11px; }
 }
+.pagination { display:flex; align-items:center; justify-content:center; gap:12px; margin:28px 0 8px; color:#7f96ad; font-size:12px; }.pagination button { padding:8px 13px; border:1px solid #d7e5f3; border-radius:999px; color:#376487; background:#fff; font:inherit; cursor:pointer; }.pagination button:hover:not(:disabled) { border-color:#8bb8e6; color:#2474d7; }.pagination button:disabled { cursor:not-allowed; opacity:.45; }.pagination b { min-width:56px; color:#315878; text-align:center; }
