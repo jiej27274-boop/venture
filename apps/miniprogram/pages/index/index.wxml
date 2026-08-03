@@ -1,0 +1,40 @@
+<view class="page">
+  <view class="hero">
+    <view class="hero-orb"><view></view></view>
+    <text class="eyebrow">VENTURE × GOVERNMENT</text>
+    <text class="hero-title">发现可信项目，连接长期伙伴</text>
+    <text class="hero-subtitle">公开摘要可浏览，完整 BP 需认证与项目方授权</text>
+    <view class="search">搜索项目 / 机构 / 地区</view>
+  </view>
+
+  <view class="role-grid">
+    <view class="role"><view class="role-icon blue">项</view><text>项目</text></view>
+    <view class="role"><view class="role-icon green">投</view><text>投资</text></view>
+    <view class="role"><view class="role-icon gold">FA</view><text>FA</text></view>
+    <view class="role" bindtap="openGovernment"><view class="role-icon teal">政</view><text>政府</text></view>
+  </view>
+
+  <view class="section-head"><text>推荐项目</text><text bindtap="openProjects">查看全部</text></view>
+  <view wx:if="{{loading}}" class="empty">正在载入…</view>
+  <view wx:else>
+    <view class="project-card card" wx:for="{{projects}}" wx:key="id" data-id="{{item.id}}" bindtap="openProject">
+      <view class="project-accent accent-{{index}}"><view></view></view>
+      <view class="project-body">
+        <view class="project-title-row"><text>{{item.name}}</text><text class="tag">已认证</text></view>
+        <text class="project-summary">{{item.summary}}</text>
+        <view class="project-meta"><text>{{item.stage}}</text><text>{{item.region}}</text><text>{{item.financingRange}}</text></view>
+      </view>
+    </view>
+  </view>
+
+  <view class="section-head"><text>政府招商</text><text bindtap="openGovernment">地区联系人</text></view>
+  <scroll-view class="contact-scroll" scroll-x enhanced>
+    <view class="contact-card card" wx:for="{{contacts}}" wx:key="id">
+      <view class="avatar">{{item.name.slice(0, 1)}}</view>
+      <text class="contact-org">{{item.organizationName}}</text><text class="muted">{{item.name}} · {{item.title}}</text>
+      <text class="contact-region">{{item.region}} · 可申请联系</text>
+    </view>
+  </scroll-view>
+</view>
+
+<view class="quick-nav card"><view bindtap="openOrganizations"><text class="quick-icon">机</text><text>机构库</text><text class="muted">投资机构 · FA · 政府</text></view><view bindtap="openArticles"><text class="quick-icon">讯</text><text>创投资讯</text><text class="muted">市场 · 政策 · 指南</text></view></view>

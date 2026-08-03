@@ -1,0 +1,7 @@
+<view class="page" wx:if="{{project}}">
+  <view class="project-hero card"><view class="hero-top"><text class="tag">已认证</text><text class="bp-state">{{project.bp ? 'BP需申请' : '暂无BP'}}</text></view><text class="title">{{project.name}}</text><text class="summary">{{project.summary}}</text><view class="meta"><text>{{project.stage}}</text><text>{{project.region}}</text><text>{{project.financingRange}}</text></view></view>
+  <view class="section card"><text class="section-title">项目亮点</text><text>围绕 {{project.industry}} 构建产品、场景与数据闭环，公开摘要已完成脱敏。</text></view>
+  <view class="section card"><text class="section-title">资料披露规则</text><view class="rule"><text>公开层</text><text>行业、地区、阶段、融资区间与项目摘要</text></view><view class="rule"><text>授权层</text><text>完整 BP、经营数据、客户和融资用途</text></view><view class="rule"><text>安全</text><text>短时链接、身份水印、有效期与访问审计</text></view></view>
+  <view class="notice" wx:if="{{requestStatus}}">{{requestStatus}}</view>
+  <button class="button-primary" loading="{{requesting}}" disabled="{{!project.bp || requesting}}" bindtap="requestBp">申请查看 BP</button>
+</view>

@@ -1,0 +1,4 @@
+{
+  "desc": "创投智联公开页面索引",
+  "rules": [{ "action": "allow", "page": "*" }]
+}

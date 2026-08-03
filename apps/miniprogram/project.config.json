@@ -1,0 +1,15 @@
+{
+  "description": "创投智联微信小程序 MVP",
+  "packOptions": { "ignore": [] },
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true
+  },
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "venture-link-miniprogram",
+  "miniprogramRoot": "./"
+}

@@ -1,0 +1,10 @@
+<view class="page">
+  <view class="headline"><text>寻找值得长期关注的项目</text><text>结构化筛选公开摘要，完整资料需项目方授权</text></view>
+  <scroll-view scroll-x class="filters"><text wx:for="{{industries}}" wx:key="*this" class="filter {{activeIndustry === item ? 'active' : ''}}" data-industry="{{item}}" bindtap="chooseIndustry">{{item}}</text></scroll-view>
+  <view class="result-count">共 {{filtered.length}} 个项目</view>
+  <view class="project card" wx:for="{{filtered}}" wx:key="id" data-id="{{item.id}}" bindtap="openProject">
+    <view class="project-top"><text>{{item.name}}</text><text class="tag">BP需申请</text></view>
+    <text class="summary">{{item.summary}}</text><view class="meta"><text>{{item.industry}}</text><text>{{item.stage}}</text><text>{{item.region}}</text></view>
+    <view class="funding"><text>融资区间</text><text>{{item.financingRange}}</text></view>
+  </view>
+</view>

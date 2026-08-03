@@ -1,0 +1,9 @@
+page { background: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif; }
+.page { padding: 24rpx 24rpx 52rpx; }
+.card { background: rgba(255,255,255,.96); border: 1rpx solid rgba(0,0,0,.04); border-radius: 32rpx; box-shadow: 0 18rpx 52rpx rgba(0,0,0,.055); }
+.section-head { display: flex; align-items: flex-end; justify-content: space-between; margin: 54rpx 4rpx 24rpx; }
+.section-head text:first-child { font-size: 38rpx; font-weight: 750; letter-spacing: -1rpx; }.section-head text:last-child { color: #007f78; font-size: 23rpx; font-weight: 600; }
+.tag { display: inline-flex; padding: 8rpx 15rpx; border-radius: 99rpx; color: #007f78; background: #e2f5f2; font-size: 19rpx; font-weight: 650; }
+.muted { color: #86868b; }.button-primary { color: #fff; background: #007f78; border-radius: 99rpx; font-size: 28rpx; font-weight: 650; box-shadow: 0 12rpx 30rpx rgba(0,127,120,.18); }.button-primary::after { border: 0; }
+.empty { padding: 90rpx 30rpx; color: #86868b; text-align: center; }
+.quick-nav { display:grid; grid-template-columns:1fr 1fr; gap:1rpx; margin:24rpx; overflow:hidden; background:#e5e5ea; }.quick-nav>view { display:flex; flex-direction:column; gap:8rpx; padding:24rpx 20rpx; background:#fff; }.quick-icon { color:#007f78; font-size:30rpx; font-weight:750; }.quick-nav>view>text:nth-child(2) { color:#1d1d1f; font-size:25rpx; font-weight:700; }.quick-nav .muted { font-size:18rpx; line-height:1.4; }
