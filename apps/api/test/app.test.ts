@@ -60,6 +60,24 @@ describe("public discovery", () => {
     expect((await filtered.json()).projects).toHaveLength(1);
   });
 
+  it("supports server-side pagination, filters, and public detail endpoints", async () => {
+    const app = createApp({ database });
+    const projects = await app.request("/api/projects?page=2&pageSize=2");
+    expect(projects.status).toBe(200);
+    expect(await projects.json()).toMatchObject({ pagination: { page: 2, pageSize: 2, total: 3, totalPages: 2 } });
+
+    const organizations = await app.request("/api/organizations?type=investor&pageSize=1");
+    expect(organizations.status).toBe(200);
+    const organizationPayload = await organizations.json() as { organizations: Array<{ type: string }>; pagination: { total: number } };
+    expect(organizationPayload.pagination.total).toBeGreaterThan(0);
+    expect(organizationPayload.organizations).toHaveLength(1);
+    expect(organizationPayload.organizations[0].type).toBe("investor");
+
+    const article = await app.request("/api/articles/industrial-capital-2026");
+    expect(article.status).toBe(200);
+    expect(await article.json()).toMatchObject({ article: { id: "article-1", status: "published" } });
+  });
+
   it("publishes only investor, FA and government organization profiles", async () => {
     const app = createApp({ database });
     const response = await app.request("/api/organizations");

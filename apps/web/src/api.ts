@@ -63,6 +63,18 @@ export type FavoriteResourceType = "project" | "organization" | "article";
 export interface Favorite { resourceType: FavoriteResourceType; resourceId: string; createdAt: string; }
 export interface RecentView { resourceType: FavoriteResourceType; resourceId: string; viewedAt: string; }
 export interface Notification { id: string; type: "system" | "account" | "project" | "bp" | "contact"; title: string; body: string; resourceType: string | null; resourceId: string | null; readAt: string | null; createdAt: string; }
+export interface Pagination { page: number; pageSize: number; total: number; totalPages: number; }
+
+type ListParams = { q?: string; industry?: string; region?: string; stage?: string; type?: Organization["type"] | "all"; category?: string; page?: number; pageSize?: number };
+
+function queryString(params: ListParams = {}) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== "" && value !== "all") search.set(key, String(value));
+  });
+  const encoded = search.toString();
+  return encoded ? `?${encoded}` : "";
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers);
@@ -77,10 +89,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  projects: () => request<{ projects: Project[] }>("/api/projects"),
-  organizations: () => request<{ organizations: Organization[] }>("/api/organizations"),
-  contacts: () => request<{ contacts: GovernmentContact[] }>("/api/government-contacts"),
-  articles: () => request<{ articles: Article[] }>("/api/articles"),
+  projects: (params: Omit<ListParams, "type" | "category"> = {}) => request<{ projects: Project[]; pagination: Pagination }>(`/api/projects${queryString(params)}`),
+  project: (projectId: string) => request<{ project: Project & { bp: { id: string; version: number; access: string } | null } }>(`/api/projects/${encodeURIComponent(projectId)}`),
+  organizations: (params: Pick<ListParams, "q" | "region" | "type" | "page" | "pageSize"> = {}) => request<{ organizations: Organization[]; pagination: Pagination }>(`/api/organizations${queryString(params)}`),
+  organization: (organizationId: string) => request<{ organization: Organization }>(`/api/organizations/${encodeURIComponent(organizationId)}`),
+  contacts: (params: Pick<ListParams, "q" | "region" | "page" | "pageSize"> = {}) => request<{ contacts: GovernmentContact[]; pagination: Pagination }>(`/api/government-contacts${queryString(params)}`),
+  contact: (contactId: string) => request<{ contact: GovernmentContact }>(`/api/government-contacts/${encodeURIComponent(contactId)}`),
+  articles: (params: Pick<ListParams, "q" | "category" | "page" | "pageSize"> = {}) => request<{ articles: Article[]; pagination: Pagination }>(`/api/articles${queryString(params)}`),
+  article: (slug: string) => request<{ article: Article }>(`/api/articles/${encodeURIComponent(slug)}`),
   authConfig: () => request<{ emailRequired: boolean; captchaEnabled: boolean; emailVerificationEnabled: boolean; passwordResetEnabled: boolean }>("/api/auth/config"),
   captcha: () => request<{ captchaId: string; image: string; expiresAt: string }>("/api/auth/captcha"),
   register: (input: { email?: string; phone?: string; password: string; confirmPassword: string; role: AuthRole; organizationName?: string; contactName?: string; userName?: string; captchaId: string; captchaCode: string }) => request<{ account: { userId: string; organizationId: string; role: AuthRole; status: "pending" | "active" } }>("/api/auth/register", {
