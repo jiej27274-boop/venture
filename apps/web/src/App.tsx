@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   api,
   type Article,
@@ -14,19 +14,122 @@ import {
   type Organization,
   type Project,
 } from "./api.ts";
+import qifengLogoUrl from "./qifeng-capital-logo.png";
 
-type View = "home" | "projects" | "organizations" | "government" | "articles" | "auth" | "account";
+type View = "home" | "projects" | "organizations" | "institutions" | "government" | "research" | "events" | "articles" | "auth" | "account";
 
 const navItems: Array<{ id: View; label: string }> = [
   { id: "home", label: "首页" },
   { id: "projects", label: "投融资" },
   { id: "organizations", label: "公司" },
+  { id: "institutions", label: "创投机构" },
   { id: "government", label: "政府对接" },
-  { id: "projects", label: "行业图谱" },
-  { id: "articles", label: "研究报告" },
-  { id: "organizations", label: "创投机构" },
-  { id: "articles", label: "新闻事件" },
-  { id: "articles", label: "产品服务" },
+  { id: "research", label: "研究报告" },
+  { id: "events", label: "创投电报" },
+];
+
+type EditorialKind = "research" | "events";
+type EditorialSection = { index: string; label: string; title: string; body: string };
+type EditorialStory = {
+  kind: EditorialKind;
+  navLabel: string;
+  eyebrow: string;
+  dateLabel: string;
+  title: string;
+  subtitle: string;
+  lead: string;
+  metrics: Array<{ value: string; label: string }>;
+  sections: EditorialSection[];
+  pullQuote: string;
+};
+
+const editorialStories: Record<EditorialKind, EditorialStory> = {
+  research: {
+    kind: "research",
+    navLabel: "研究报告",
+    eyebrow: "VENTURE RESEARCH · FIELD NOTE",
+    dateLabel: "本期观察 · 2026.08",
+    title: "产业资本进入验证期",
+    subtitle: "从追逐风口，到把技术、产能和落地场景放在同一张表里。",
+    lead: "这一期不追逐热词。我们把视线放回项目真正能不能落地：谁在付费、谁能交付、谁愿意共同承担下一阶段的不确定性。",
+    metrics: [
+      { value: "01", label: "核心判断" },
+      { value: "03", label: "观察信号" },
+      { value: "12 min", label: "建议阅读" },
+    ],
+    sections: [
+      { index: "01", label: "判断", title: "资本的耐心，正在被产业结果重新定义", body: "当融资节奏放缓，项目的表达重点也在变化。单一技术亮点很难独立支撑下一轮判断，真实客户、交付周期和单位经济模型开始成为更早被追问的内容。" },
+      { index: "02", label: "信号", title: "能把复杂事情讲清楚的团队，更容易获得下一次沟通", body: "优秀的项目不再把材料写成愿景目录，而是把产业链位置、验证进度和下一步要解决的问题排成一条清晰的路径。信息越具体，合作方越容易找到自己的切入口。" },
+      { index: "03", label: "建议", title: "先证明一件事，再谈更大的想象空间", body: "对于项目方，建议把下一阶段拆成可验收的三个动作；对于资金方，除了看增长曲线，也要看团队是否具备持续拿到现场反馈并完成迭代的能力。" },
+    ],
+    pullQuote: "真正有价值的增长，不是把故事讲得更大，而是让下一次验证变得更近。",
+  },
+  events: {
+    kind: "events",
+    navLabel: "创投电报",
+    eyebrow: "EVENT BRIEF · PLATFORM DESK",
+    dateLabel: "事件观察 · 2026.08",
+    title: "一次产业合作，怎样从接触走到落地",
+    subtitle: "真正重要的新闻，不只发生在签约台上。",
+    lead: "我们记录一条项目落地链路：需求从哪里出现，证据如何被核验，政府、资本和项目方又怎样在同一张时间表上重新对齐。",
+    metrics: [
+      { value: "04", label: "关键节点" },
+      { value: "03", label: "参与角色" },
+      { value: "01", label: "落地目标" },
+    ],
+    sections: [
+      { index: "01", label: "接触", title: "需求先于方案出现", body: "一次有效的对接，往往不是从介绍产品开始，而是从确认现场问题开始。需求越具体，项目方越能快速判断自己的技术和交付能力是否真的适配。" },
+      { index: "02", label: "核验", title: "把纸面能力变成现场证据", body: "技术参数、客户反馈、产能安排和团队分工，是合作从意向进入验证的几个关键切面。公开信息只负责建立信任，现场证据才负责推动下一步。" },
+      { index: "03", label: "协同", title: "让三方站到同一张时间表上", body: "项目方关注交付，资本关注节奏，地方关注产业贡献。把各自的目标拆成可以互相确认的节点，合作才不会停留在一次会议之后。" },
+      { index: "04", label: "落地", title: "让承诺进入排产表和预算表", body: "落地不是一句口号，而是明确的空间、设备、人员和资金安排。最终决定合作质量的，通常是这些不够热闹但可以被复盘的细节。" },
+    ],
+    pullQuote: "新闻的终点不是热度，而是一个项目开始真正改变现场。",
+  },
+};
+
+const telegraphCategories = [
+  { id: "investment", label: "投资事件" },
+  { id: "acquisition", label: "收购事件" },
+  { id: "merger", label: "合并事件" },
+  { id: "listing", label: "上市事件" },
+  { id: "ipo", label: "IPO 排队" },
+  { id: "exit", label: "退出事件" },
+  { id: "fundraising", label: "募资事件" },
+  { id: "personnel", label: "人事变动" },
+  { id: "product", label: "产品发布" },
+  { id: "negative", label: "坏消息" },
+  { id: "vc-insight", label: "VC 洞见" },
+  { id: "institution", label: "机构要闻" },
+  { id: "equity", label: "股权转让" },
+] as const;
+type TelegraphCategory = (typeof telegraphCategories)[number]["id"];
+type TelegraphEntry = {
+  id: string;
+  category: TelegraphCategory;
+  date: string;
+  timeLabel: string;
+  title: string;
+  summary: string;
+  detail: string;
+};
+
+const telegraphEntries: TelegraphEntry[] = [
+  { id: "telegraph-investment-1", category: "investment", date: "2026-08-03", timeLabel: "33 分钟前", title: "澜序智能完成 1000 万元种子轮融资", summary: "澜序智能是一家面向工业现场的 AI 服务团队，本轮资金将用于完善数据采集、模型验证和首批客户交付。", detail: "团队把融资拆成三个明确动作：先完成两类现场数据的标准化，再把模型部署到真实生产环境，最后围绕交付周期建立可复用的实施方法。相比单纯扩大模型参数，这种节奏更接近产业客户真正愿意付费的地方。" },
+  { id: "telegraph-investment-2", category: "investment", date: "2026-08-03", timeLabel: "49 分钟前", title: "广达盛贸易获得新一轮投资", summary: "广达盛贸易长期服务食品与消费品供应链，新增资金将用于区域仓配网络和数字化采购能力建设。", detail: "这笔投资的看点不在门店数量，而在供应链效率。企业正在把采购、仓储和渠道反馈放到同一套数据流程中，试图用更短的周转时间换取更稳定的毛利空间。" },
+  { id: "telegraph-investment-3", category: "investment", date: "2026-08-03", timeLabel: "1 小时前", title: "光年探索获得数千万元 Pre-A 轮融资", summary: "光年探索专注工业化运载与火箭结构产品，资金将用于核心结构研发、测试验证和小批量制造。", detail: "项目进入 Pre-A 阶段后，投资人关注的重点从技术可行性转向工程化能力。下一阶段能否稳定完成测试、控制交付成本，将直接影响它从技术团队走向产业供应商的速度。" },
+  { id: "telegraph-investment-4", category: "investment", date: "2026-08-02", timeLabel: "昨天", title: "迈创峰获得数千万美元天使轮融资", summary: "迈创峰为新能源设备提供核心零部件和检测服务，首笔资金将支持实验线建设与下游客户验证。", detail: "早期资金首先要买来验证时间。对这类设备项目而言，实验线、样品迭代和客户测试是最重要的三项支出，能否把验证周期压缩下来，比过早扩张产能更关键。" },
+  { id: "telegraph-acquisition-1", category: "acquisition", date: "2026-08-02", timeLabel: "昨天", title: "恒川科技完成对微澜数据的战略收购", summary: "双方将整合工业数据接口和行业客户资源，收购完成后保留微澜数据的产品团队与独立交付体系。", detail: "这不是简单的客户并表。收购方需要把接口能力真正嵌入原有产品，同时保留被收购团队对行业现场的理解，整合周期和产品边界值得继续观察。" },
+  { id: "telegraph-merger-1", category: "merger", date: "2026-08-01", timeLabel: "2 天前", title: "两家产业服务平台宣布合并运营", summary: "合并后的平台将把区域招商服务与项目交付能力放到同一条业务线上，先从华东市场展开试点。", detail: "合并之后最先需要解决的是业务协同，而不是品牌更换。双方正在统一客户分层、项目跟进和交付节点，能否减少重复沟通将决定这次整合的实际价值。" },
+  { id: "telegraph-listing-1", category: "listing", date: "2026-07-31", timeLabel: "3 天前", title: "北辰储能提交上市辅导备案", summary: "北辰储能主营工商业储能系统与运维服务，当前计划优先提升项目交付和应收账款管理能力。", detail: "上市准备让企业重新审视经营质量。除了收入规模，储能项目的回款周期、售后责任和资产使用效率都会进入更细的核验阶段。" },
+  { id: "telegraph-ipo-1", category: "ipo", date: "2026-07-30", timeLabel: "4 天前", title: "云栖医疗进入 IPO 排队阶段", summary: "云栖医疗围绕基层诊疗设备和数据服务展开业务，后续将继续推进产品注册与渠道合规。", detail: "进入排队并不意味着终点。医疗项目仍要回到产品注册、渠道合规和真实使用反馈，资本市场的时间表最终要和临床及商业化节奏对齐。" },
+  { id: "telegraph-exit-1", category: "exit", date: "2026-07-29", timeLabel: "5 天前", title: "远景资本完成一笔早期项目退出", summary: "该项目经过四年产品迭代后被产业方接手，原投资团队将继续以顾问身份参与业务交接。", detail: "一笔健康的退出不只看回报数字，也看项目是否找到更适合下一阶段的经营者。产业方的渠道和交付能力，是这次交易能够落地的重要原因。" },
+  { id: "telegraph-fundraising-1", category: "fundraising", date: "2026-07-28", timeLabel: "6 天前", title: "杉木基金完成首期人民币基金募集", summary: "基金重点关注先进制造、产业软件与新能源服务，首期规模将以早期和成长期项目为主。", detail: "新基金把募资节奏放得更稳，重点不是覆盖更多赛道，而是围绕有限的产业方向建立持续的项目来源和投后协同能力。" },
+  { id: "telegraph-personnel-1", category: "personnel", date: "2026-07-27", timeLabel: "7 天前", title: "启明产业资本任命新的投后负责人", summary: "新负责人将重点推进被投企业之间的供应链协作、客户引荐和区域落地项目。", detail: "投后服务正在从活动组织转向具体业务协作。负责人背景和企业资源是否匹配，将比职位名称更能说明机构的服务能力。" },
+  { id: "telegraph-product-1", category: "product", date: "2026-07-26", timeLabel: "8 天前", title: "数桥发布面向制造业的现金流预测工具", summary: "新工具将订单、采购、库存和回款信息放到同一视图，先在装备制造和零部件企业中试用。", detail: "产品没有从复杂报表开始，而是先回答企业最常见的一个问题：未来八周的现金流缺口在哪里。能否接入真实业务系统，是产品下一阶段的关键。" },
+  { id: "telegraph-negative-1", category: "negative", date: "2026-07-25", timeLabel: "9 天前", title: "某智能硬件项目暂停新一轮扩产计划", summary: "项目方表示将先完成现有客户交付和库存消化，再决定下一阶段的产能投入。", detail: "暂停扩产不等于项目结束。对硬件团队来说，先把交付、库存和现金流重新拉回可控范围，往往比在需求不确定时继续加码更重要。" },
+  { id: "telegraph-vc-1", category: "vc-insight", date: "2026-07-24", timeLabel: "10 天前", title: "VC 洞见：项目估值正在回到交付证据", summary: "在产业项目的早期判断里，客户验证、交付能力和团队复盘速度成为越来越高频的观察项。", detail: "估值不是一个孤立的数字。项目能否持续拿到现场反馈，并把反馈变成产品和交付上的改进，正在成为判断成长空间的重要证据。" },
+  { id: "telegraph-institution-1", category: "institution", date: "2026-07-23", timeLabel: "11 天前", title: "海岳创投开放先进制造项目征集窗口", summary: "本次征集关注工业软件、关键零部件和绿色制造服务，优先考虑已有明确客户验证的团队。", detail: "机构把征集条件写得更具体，说明项目来源正在从广泛覆盖转向产业匹配。对项目方而言，准备真实客户反馈比堆叠概念更有效。" },
+  { id: "telegraph-equity-1", category: "equity", date: "2026-07-22", timeLabel: "12 天前", title: "一家产业服务企业完成股权结构调整", summary: "调整后创始团队与产业股东的职责边界更加清晰，后续将围绕区域交付和产品化服务展开。", detail: "股权变化通常会带来治理节奏的变化。此次调整把经营权、产业资源和长期激励重新分开安排，重点是让决策链条更短、更容易被执行。" },
 ];
 
 const organizationType = { investor: "投资机构", fa: "FA 机构", government: "政府招商" } as const;
@@ -35,8 +138,39 @@ function SectionTitle({ eyebrow, title, description }: { eyebrow: string; title:
   return <div className="section-title"><span>{eyebrow}</span><h2>{title}</h2>{description && <p>{description}</p>}</div>;
 }
 
-function VentureLogo() {
-  return <span className="venture-logo" aria-hidden="true"><svg viewBox="0 0 40 40" focusable="false"><defs><linearGradient id="venture-logo-gradient" x1="6" y1="4" x2="33" y2="35" gradientUnits="userSpaceOnUse"><stop stopColor="#2b8bea"/><stop offset="1" stopColor="#13b6a4"/></linearGradient></defs><path d="M7 8 17 31 27 8" fill="none" stroke="url(#venture-logo-gradient)" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"/><path d="m23 13 9-9m0 0h-8m8 0v8" fill="none" stroke="#2b8bea" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><circle cx="7" cy="8" r="3" fill="#2b8bea"/><circle cx="17" cy="31" r="3" fill="#13b6a4"/><circle cx="27" cy="8" r="3" fill="#2b8bea"/></svg></span>;
+type DropdownOption = { value: string; label: string };
+
+function Dropdown({ value, options, onChange, ariaLabel, className = "" }: { value: string; options: DropdownOption[]; onChange: (value: string) => void; ariaLabel: string; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return <div className={`dropdown${className ? ` ${className}` : ""}`} ref={rootRef}>
+    <button type="button" className={`dropdown-trigger${open ? " open" : ""}`} aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+      <span>{selected?.label ?? value}</span><i aria-hidden="true" />
+    </button>
+    {open && <div className="dropdown-menu" role="listbox" aria-label={ariaLabel}>{options.map((option) => <button type="button" role="option" aria-selected={option.value === value} className={option.value === value ? "selected" : ""} key={option.value} onClick={() => { onChange(option.value); setOpen(false); }}>{option.label}</button>)}</div>}
+  </div>;
+}
+
+function QifengLogo() {
+  return <img className="qifeng-logo" src={qifengLogoUrl} alt="启峰创投" />;
 }
 
 function FavoriteButton({ active, onClick }: { active: boolean; onClick?: () => void }) {
@@ -69,21 +203,19 @@ function OrganizationCard({ organization, favorite, onToggleFavorite }: { organi
   );
 }
 
-type SearchTarget = Exclude<View, "home" | "auth" | "account">;
+type SearchTarget = Exclude<View, "home" | "auth" | "account" | "articles" | "research" | "events" | "institutions">;
 type SearchMatch = { id: string; target: SearchTarget; title: string; meta: string };
 
 const searchTargetLabels: Record<SearchTarget, string> = {
   projects: "项目",
   organizations: "机构",
   government: "政府联系人",
-  articles: "资讯",
 };
 
-function GlobalSearch({ projects, organizations, contacts, articles, onSearch }: {
+function GlobalSearch({ projects, organizations, contacts, onSearch }: {
   projects: Project[];
   organizations: Organization[];
   contacts: GovernmentContact[];
-  articles: Article[];
   onSearch: (query: string, target: SearchTarget) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -96,9 +228,8 @@ function GlobalSearch({ projects, organizations, contacts, articles, onSearch }:
       ...projects.filter((project) => includes([project.name, project.summary, project.industry, project.region, project.stage])).map((project) => ({ id: project.id, target: "projects" as const, title: project.name, meta: `${project.industry} · ${project.region}` })),
       ...organizations.filter((organization) => includes([organization.name, organization.tagline, organization.description, organization.region, ...organization.focus])).map((organization) => ({ id: organization.id, target: "organizations" as const, title: organization.name, meta: `${searchTargetLabels.organizations} · ${organization.region}` })),
       ...contacts.filter((contact) => includes([contact.name, contact.organizationName, contact.title, contact.region, ...contact.industries])).map((contact) => ({ id: contact.id, target: "government" as const, title: `${contact.name} · ${contact.organizationName}`, meta: `${searchTargetLabels.government} · ${contact.region}` })),
-      ...articles.filter((article) => includes([article.title, article.summary, article.content, article.category])).map((article) => ({ id: article.id, target: "articles" as const, title: article.title, meta: `${searchTargetLabels.articles} · ${article.category}` })),
     ].slice(0, 8);
-  }, [articles, contacts, organizations, projects, query]);
+  }, [contacts, organizations, projects, query]);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const normalized = query.trim();
@@ -107,7 +238,7 @@ function GlobalSearch({ projects, organizations, contacts, articles, onSearch }:
     setOpen(false);
   };
   return <div className="global-search">
-    <form onSubmit={submit} role="search"><input aria-label="全站搜索" value={query} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder="搜索项目、机构、资讯"/><button aria-label="提交搜索" type="submit">⌕</button></form>
+    <form onSubmit={submit} role="search"><input aria-label="全站搜索" value={query} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder="搜索项目、机构或行业"/><button aria-label="提交搜索" type="submit"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="4.5"/><path d="m12 12 4 4"/></svg></button></form>
     {open && query.trim() && <div className="search-results" role="listbox">
       {matches.length ? matches.map((match) => <button key={`${match.target}-${match.id}`} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => { onSearch(query.trim(), match.target); setOpen(false); }}><span>{match.title}</span><small>{match.meta}</small></button>) : <div className="search-empty">未找到匹配内容，按回车查看项目库</div>}
     </div>}
@@ -118,7 +249,6 @@ const portalTargets: Array<{ id: SearchTarget; label: string }> = [
   { id: "projects", label: "查项目" },
   { id: "organizations", label: "查机构" },
   { id: "government", label: "查政府联系人" },
-  { id: "articles", label: "查创投资讯" },
 ];
 
 type StatIconName = "company" | "events" | "institution" | "person" | "industry" | "rocket";
@@ -132,11 +262,38 @@ function StatIcon({ name }: { name: StatIconName }) {
   return <svg viewBox="0 0 24 24" {...props}><path d="m4 16 7-9 9-3-3 9-9 7-4-4Z"/><path d="m11 7 6 6M8 17l-2 3M15 6l3-2"/><circle cx="15" cy="9" r="1"/></svg>;
 }
 
-function PortalHero({ projects, organizations, contacts, articles, go }: {
+function CountUp({ value }: { value: number }) {
+  const [displayValue, setDisplayValue] = useState(0);
+
+  useEffect(() => {
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setDisplayValue(0);
+    if (reduceMotion || value <= 0) {
+      setDisplayValue(value);
+      return;
+    }
+
+    const startedAt = performance.now();
+    const duration = 900;
+    let frame = 0;
+    const tick = (now: number) => {
+      const progress = Math.min((now - startedAt) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplayValue(Math.round(value * eased));
+      if (progress < 1) frame = requestAnimationFrame(tick);
+    };
+
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
+
+  return <>{displayValue.toLocaleString("zh-CN")}</>;
+}
+
+function PortalHero({ projects, organizations, contacts, go }: {
   projects: Project[];
   organizations: Organization[];
   contacts: GovernmentContact[];
-  articles: Article[];
   go: (view: View, query?: string) => void;
 }) {
   const [target, setTarget] = useState<SearchTarget>("projects");
@@ -148,12 +305,10 @@ function PortalHero({ projects, organizations, contacts, articles, go }: {
   const industryCount = new Set([...projects.map((project) => project.industry), ...organizations.flatMap((organization) => organization.focus)]).size;
   const activeInvestors = organizations.filter((organization) => organization.type === "investor").length;
   const stats = [
-    { value: projects.length.toLocaleString(), label: "公司", tone: "blue", icon: "company" as const },
-    { value: "—", label: "投资事件", tone: "violet", icon: "events" as const },
-    { value: activeInvestors.toLocaleString(), label: "活跃投资机构", tone: "cyan", icon: "institution" as const },
-    { value: "—", label: "投资人", tone: "green", icon: "person" as const },
-    { value: industryCount.toLocaleString(), label: "行业", tone: "orange", icon: "industry" as const },
-    { value: projects.length.toLocaleString(), label: "新经济新公司", tone: "navy", icon: "rocket" as const },
+    { value: projects.length, label: "公开项目", tone: "blue", icon: "company" as const },
+    { value: organizations.length, label: "入驻机构", tone: "blue", icon: "institution" as const },
+    { value: activeInvestors, label: "活跃投资机构", tone: "blue", icon: "person" as const },
+    { value: industryCount, label: "覆盖行业", tone: "blue", icon: "industry" as const },
   ];
   return <>
     <section className="portal-hero">
@@ -177,17 +332,37 @@ function PortalHero({ projects, organizations, contacts, articles, go }: {
       </div>
     </section>
     <section className="portal-stats section-wrap" aria-label="平台数据概览">
-      {stats.map((stat) => <div className="portal-stat" key={stat.label}><span className={`portal-stat-icon ${stat.tone}`} aria-hidden="true"><StatIcon name={stat.icon}/></span><div><b>{stat.value}</b><small>{stat.label}</small></div></div>)}
+      {stats.map((stat) => <div className="portal-stat" key={stat.label}><span className={`portal-stat-icon ${stat.tone}`} aria-hidden="true"><StatIcon name={stat.icon}/></span><div><b><CountUp value={stat.value} /></b><small>{stat.label}</small></div></div>)}
     </section>
   </>;
 }
 
-function PortalDataDashboard({ projects, organizations, articles, go, openArticle }: {
+function EditorialGateway({ go }: { go: (view: View) => void }) {
+  return <section className="section-wrap editorial-gateway" aria-label="研究与事件">
+    <div className="editorial-gateway-heading">
+      <span>EDITORIAL DESK</span>
+      <h2>研究与事件</h2>
+      <p>把产业判断和一线变化放在一起看，给项目、资本与地方合作多一点背景。</p>
+    </div>
+    <div className="editorial-gateway-grid">
+      {(["research", "events"] as const).map((kind, index) => {
+        const story = editorialStories[kind];
+        return <button className={`editorial-gateway-card editorial-gateway-${kind}`} key={kind} onClick={() => go(kind)}>
+          <span className="editorial-gateway-index">{String(index + 1).padStart(2, "0")}</span>
+          <span className="editorial-gateway-label">{story.navLabel}</span>
+          <h3>{story.title}</h3>
+          <p>{story.subtitle}</p>
+          <b>进入专题 <span aria-hidden="true">→</span></b>
+        </button>;
+      })}
+    </div>
+  </section>;
+}
+
+function PortalDataDashboard({ projects, organizations, go }: {
   projects: Project[];
   organizations: Organization[];
-  articles: Article[];
   go: (view: View, query?: string) => void;
-  openArticle: (article: Article) => void;
 }) {
   const industryCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -203,46 +378,39 @@ function PortalDataDashboard({ projects, organizations, articles, go, openArticl
         <div className="portal-table-wrap"><table><thead><tr><th>项目</th><th>阶段</th><th>融资需求</th><th>地区</th><th>行业</th><th>信息状态</th></tr></thead><tbody>{projects.slice(0, 6).map((project) => <tr key={project.id}><td><b>{project.name}</b></td><td>{project.stage}</td><td>{project.financingRange || "未披露"}</td><td>{project.region}</td><td>{project.industry}</td><td><span className="portal-status">已审核</span></td></tr>)}</tbody></table></div>
         {projects.length === 0 && <div className="portal-empty">暂无公开项目</div>}
       </article>
-      <div className="portal-banners">
-        <button className="portal-banner blue" onClick={() => go("projects")}><span>创投数据产品</span><b>用数据发现下一笔机会</b><small>浏览公开项目与产业方向&nbsp;›</small><i aria-hidden="true" /></button>
-        <button className="portal-banner violet" onClick={() => go("articles")}><span>行业研究报告</span><b>洞察产业趋势与融资方法</b><small>阅读创投资讯与研究内容&nbsp;›</small><i aria-hidden="true" /></button>
-      </div>
       <article className="portal-panel portal-featured">
-        <div className="portal-panel-heading"><div><span>FEATURED INSIGHTS</span><h2>精选内容</h2></div><button onClick={() => go("articles")}>更多&nbsp;›</button></div>
-        <div className="portal-featured-grid">{articles.slice(0, 4).map((article, index) => <button key={article.id} onClick={() => openArticle(article)}><span className={`portal-featured-art tone-${index % 3}`} /><b>{article.title}</b><small>{article.category} · {article.publishedAt || "日期未披露"}</small></button>)}</div>
-        {articles.length === 0 && <div className="portal-empty">暂无公开资讯</div>}
+        <div className="portal-panel-heading"><div><span>FEATURED EDITORIAL</span><h2>精选专题</h2></div><button onClick={() => go("research")}>查看研究&nbsp;›</button></div>
+        <div className="portal-featured-grid">{(["research", "events"] as const).map((kind) => { const story = editorialStories[kind]; return <button key={kind} onClick={() => go(kind)}><span className={`portal-featured-art editorial-art-${kind}`}><em>{story.navLabel}</em></span><b>{story.title}</b><small>{story.dateLabel}</small></button>; })}</div>
+      </article>
+      <article className="portal-panel portal-observation">
+        <div className="portal-panel-heading"><div><span>WEEKLY OBSERVATION</span><h2>本周观察</h2></div><button onClick={() => go("research")}>查看报告&nbsp;›</button></div>
+        <div className="portal-observation-body"><p>产业资本正在从追逐风口，转向验证项目能不能持续交付。比故事更早被问到的，是客户反馈、交付周期和现金流。</p><div className="portal-observation-signals"><span><b>客户验证</b><small>先看真实反馈</small></span><span><b>交付周期</b><small>再看能否复制</small></span><span><b>现金流</b><small>最后看增长质量</small></span></div></div>
       </article>
     </div>
     <aside className="portal-dashboard-side">
       <article className="portal-panel portal-industries"><div className="portal-panel-heading"><div><span>INDUSTRY MAP</span><h2>行业图谱</h2></div><button onClick={() => go("projects")}>更多&nbsp;›</button></div><div className="portal-industry-grid">{industryCounts.map(([industry, count]) => <button key={industry} onClick={() => go("projects", industry)}><span className="portal-industry-dot" />{industry}<b>{count}</b></button>)}{industryCounts.length === 0 && <div className="portal-empty">暂无行业数据</div>}</div></article>
       <article className="portal-panel portal-ranking"><div className="portal-panel-heading"><div><span>NETWORK</span><h2>入驻机构</h2></div><button onClick={() => go("organizations")}>更多&nbsp;›</button></div><ol>{rankedOrganizations.map((organization, index) => <li key={organization.id}><em>{index + 1}</em><span><b>{organization.name}</b><small>{organization.region} · {organization.tagline}</small></span><i>{organization.type === "investor" ? "投资机构" : organization.type === "fa" ? "FA 机构" : "政府招商"}</i></li>)}</ol>{rankedOrganizations.length === 0 && <div className="portal-empty">暂无机构数据</div>}</article>
-      <article className="portal-panel portal-news"><div className="portal-panel-heading"><div><span>NEWSROOM</span><h2>热门新闻</h2></div><button onClick={() => go("articles")}>更多&nbsp;›</button></div><ul>{articles.slice(0, 5).map((article) => <li key={article.id}><button onClick={() => openArticle(article)}>{article.title}</button><time>{article.publishedAt || "日期未披露"}</time></li>)}</ul>{articles.length === 0 && <div className="portal-empty">暂无新闻</div>}</article>
+      <article className="portal-panel portal-news"><div className="portal-panel-heading"><div><span>VENTURE TELEGRAPH</span><h2>创投电报</h2></div><button onClick={() => go("events")}>进入电报&nbsp;›</button></div><div className="portal-event-note"><b>{editorialStories.events.title}</b><p>{editorialStories.events.lead}</p><button onClick={() => go("events")}>查看创投电报 <span aria-hidden="true">→</span></button></div></article>
     </aside>
   </section>;
 }
 
-function HomeView({ projects, organizations, contacts, articles, go, openProject, openArticle, favoriteKeys, onToggleFavorite }: {
+function HomeView({ projects, organizations, contacts, go, openProject, favoriteKeys, onToggleFavorite }: {
   projects: Project[];
   organizations: Organization[];
   contacts: GovernmentContact[];
-  articles: Article[];
   go: (view: View, query?: string) => void;
   openProject: (project: Project) => void;
-  openArticle: (article: Article) => void;
   favoriteKeys: Set<string>;
   onToggleFavorite: (type: FavoriteResourceType, id: string) => void;
 }) {
   return <>
-    <PortalHero projects={projects} organizations={organizations} contacts={contacts} articles={articles} go={go}/>
-    <PortalDataDashboard projects={projects} organizations={organizations} articles={articles} go={go} openArticle={openArticle}/>
+    <PortalHero projects={projects} organizations={organizations} contacts={contacts} go={go}/>
+    <EditorialGateway go={go}/>
+    <PortalDataDashboard projects={projects} organizations={organizations} go={go}/>
     <section className="section-wrap home-section">
       <div className="section-heading-row reveal"><SectionTitle eyebrow="FEATURED PROJECTS" title="精选项目" description="公开摘要经过审核，敏感项目支持匿名展示。"/><button className="outline" onClick={() => go("projects")}>查看全部项目</button></div>
       <div className="project-grid">{projects.slice(0, 3).map((project) => <ProjectCard key={project.id} project={project} onOpen={openProject} favorite={favoriteKeys.has(`project:${project.id}`)} onToggleFavorite={() => onToggleFavorite("project", project.id)}/>)}</div>
-    </section>
-
-    <section className="section-wrap home-section">
-      <div className="section-heading-row reveal"><SectionTitle eyebrow="INSIGHTS" title="创投与招商洞察" description="关注一级市场、产业趋势与区域招商实践。"/><button className="outline" onClick={() => go("articles")}>阅读更多</button></div>
-      <div className="article-grid">{articles.slice(0, 3).map((article, index) => <button className="article-card reveal" key={article.id} onClick={() => openArticle(article)}><span className={`article-art tone-${index % 3}`}><em>{article.category}</em></span><small>{article.category}</small><h3>{article.title}</h3><p>{article.summary}</p><b>阅读全文 →</b></button>)}</div>
     </section>
   </>;
 }
@@ -257,36 +425,243 @@ function ProjectsView({ projects, openProject, initialQuery = "", favoriteKeys, 
   const options = (key: "industry" | "region" | "stage") => [...new Set(projects.map((project) => project[key]))];
   return <main className="page"><section className="page-hero"><div className="section-wrap reveal"><span>PROJECT DISCOVERY</span><h1>发现值得长期同行的项目</h1><p>项目公开信息均经审核，完整 BP 需要项目方授权后查看。</p></div></section><section className="section-wrap page-content">
     <div className="filter-bar"><input aria-label="搜索项目" value={q} onChange={(event) => setQ(event.target.value)} placeholder="搜索项目、产业关键词"/>
-      <select aria-label="选择行业" value={industry} onChange={(event) => setIndustry(event.target.value)}><option value="">全部行业</option>{options("industry").map((value) => <option key={value}>{value}</option>)}</select>
-      <select aria-label="选择地区" value={region} onChange={(event) => setRegion(event.target.value)}><option value="">全部地区</option>{options("region").map((value) => <option key={value}>{value}</option>)}</select>
-      <select aria-label="选择轮次" value={stage} onChange={(event) => setStage(event.target.value)}><option value="">全部轮次</option>{options("stage").map((value) => <option key={value}>{value}</option>)}</select>
+      <Dropdown ariaLabel="选择行业" value={industry} onChange={setIndustry} options={[{ value: "", label: "全部行业" }, ...options("industry").map((value) => ({ value, label: value }))]} />
+      <Dropdown ariaLabel="选择地区" value={region} onChange={setRegion} options={[{ value: "", label: "全部地区" }, ...options("region").map((value) => ({ value, label: value }))]} />
+      <Dropdown ariaLabel="选择轮次" value={stage} onChange={setStage} options={[{ value: "", label: "全部轮次" }, ...options("stage").map((value) => ({ value, label: value }))]} />
     </div><div className="result-line">找到 <b>{filtered.length}</b> 个公开项目</div><div className="project-grid">{filtered.map((project) => <ProjectCard key={project.id} project={project} onOpen={openProject} favorite={favoriteKeys.has(`project:${project.id}`)} onToggleFavorite={() => onToggleFavorite("project", project.id)}/>)}</div>
   </section></main>;
 }
 
+function CompanyLock() {
+  return <svg className="company-lock-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6" rx="1.5"/><path d="M5.5 7V5.4a2.5 2.5 0 0 1 5 0V7"/></svg>;
+}
+
+const companyIndustryOptions = ["全部", "企业服务", "生物科技", "医疗健康", "文化娱乐", "智能制造", "传统行业", "金融", "人工智能", "教育培训", "汽车交通", "生活服务", "电子商务", "能源电力", "大数据", "旅游", "农业", "消费", "物联网", "社区社交", "区块链"];
+const companyRoundOptions = ["全部", "种子轮", "天使轮", "A轮", "B轮", "C轮", "D轮", "E轮", "F轮", "G~Pre-IPO(不含)", "Pre-IPO轮", "基石投资", "IPO", "二次上市", "上市公司定增", "上市（非IPO）", "新三板挂牌", "新三板定增", "并购", "私有化"];
+const companyTimeOptions = ["全部", "近三个月", "最近半年", "最近一年", "2026", "2025", "2024"];
+const companySidebarItems = ["全部公司", "未上市公司", "新股上会公司", "IPO上市公司", "新三板", "公司估值"];
+
 function OrganizationsView({ organizations, initialQuery = "", favoriteKeys, onToggleFavorite }: { organizations: Organization[]; initialQuery?: string; favoriteKeys: Set<string>; onToggleFavorite: (type: FavoriteResourceType, id: string) => void }) {
-  const [type, setType] = useState<"all" | Organization["type"]>("all"); const [region, setRegion] = useState(""); const [q, setQ] = useState(initialQuery);
+  const [industry, setIndustry] = useState("");
+  const [region, setRegion] = useState<"" | "中国" | "海外">("");
+  const [q, setQ] = useState(initialQuery);
+  const [headquartersQuery, setHeadquartersQuery] = useState("");
   useEffect(() => setQ(initialQuery), [initialQuery]);
   const normalized = q.trim().toLowerCase();
-  const filtered = organizations.filter((organization) => (type === "all" || organization.type === type) && (!region || organization.region === region) && (!normalized || [organization.name, organization.tagline, organization.description, organization.region, ...organization.focus].some((value) => value.toLowerCase().includes(normalized))));
-  return <main className="page"><section className="page-hero"><div className="section-wrap reveal"><span>INSTITUTION NETWORK</span><h1>连接专业资本与产业服务</h1><p>机构信息来自线下登记与平台核验，持续完善投资偏好和服务能力。</p></div></section><section className="section-wrap page-content">
-    <div className="tabs"><button className={type === "all" ? "active" : ""} onClick={() => setType("all")}>全部机构</button>{(["investor", "fa", "government"] as const).map((value) => <button key={value} className={type === value ? "active" : ""} onClick={() => setType(value)}>{organizationType[value]}</button>)}<select className="filter-select" value={region} onChange={(event) => setRegion(event.target.value)}><option value="">全部地区</option>{[...new Set(organizations.map((organization) => organization.region))].map((value) => <option key={value}>{value}</option>)}</select></div>
-    {q && <div className="result-line">搜索“{q}”找到 <b>{filtered.length}</b> 个机构</div>}<div className="organization-list">{filtered.map((organization) => <OrganizationCard key={organization.id} organization={organization} favorite={favoriteKeys.has(`organization:${organization.id}`)} onToggleFavorite={() => onToggleFavorite("organization", organization.id)}/>)}</div>
-  </section></main>;
+  const normalizedHeadquarters = headquartersQuery.trim().toLowerCase();
+  const industryAliases: Record<string, string[]> = { "智能制造": ["智能制造", "先进制造", "机器人工"], "消费": ["消费", "消费科技"] };
+  const industryMatches = (organization: Organization) => !industry || industry === "全部" || organization.focus.some((value) => (industryAliases[industry] ?? [industry]).some((alias) => value.includes(alias) || alias.includes(value)));
+  const regionMatches = (organization: Organization) => !region || (region === "中国" ? !organization.region.includes("海外") : organization.region.includes("海外"));
+  const filtered = organizations.filter((organization) =>
+    industryMatches(organization) &&
+    regionMatches(organization) &&
+    (!normalizedHeadquarters || organization.region.toLowerCase().includes(normalizedHeadquarters)) &&
+    (!normalized || [organization.name, organization.tagline, organization.description, organization.region, ...organization.focus].some((value) => value.toLowerCase().includes(normalized))),
+  );
+  const clearFilters = () => { setIndustry(""); setRegion(""); setQ(""); setHeadquartersQuery(""); };
+  return <main className="page company-directory-page"><section className="section-wrap company-directory-shell"><div className="company-directory-layout">
+    <aside className="company-sidebar" aria-label="公司分类导航"><div className="company-sidebar-heading"><span>COMPANY INDEX</span><h1>公司</h1><p>公司主体、上市状态与估值信息。</p></div><nav className="company-sidebar-nav">{companySidebarItems.map((item, index) => <button type="button" key={item} className={index === 0 ? "active" : ""} disabled={index > 0} onClick={index === 0 ? clearFilters : undefined}><StatIcon name={index === 0 ? "company" : index === 3 ? "rocket" : "industry"}/><span className="company-sidebar-item-label">{item}<CompanyLock/></span><small>{index === 0 ? organizations.length : ""}</small></button>)}<div className="company-sidebar-divider"/><div className="company-sidebar-pro"><StatIcon name="industry"/><span>AI标签企业</span><b>Beta</b><em>机构版</em></div><div className="company-sidebar-locked">机构版 <span>解锁</span></div></nav><div className="company-sidebar-note">部分公司指标需升级机构版查看。</div></aside>
+    <div className="company-workspace"><div className="company-filter-panel"><div className="company-filter-row"><span className="company-filter-label"><CompanyLock/>睿兽行业</span><div className="company-filter-options">{companyIndustryOptions.map((value, index) => <button type="button" key={value} className={(!industry && index === 0) || industry === value ? "active" : ""} onClick={() => setIndustry(index === 0 ? "" : value)}>{value}</button>)}</div></div><div className="company-filter-row"><span className="company-filter-label"><CompanyLock/>最新轮次</span><div className="company-filter-options company-filter-static-options">{companyRoundOptions.map((value, index) => <span className={index === 0 ? "active" : ""} key={value}>{value}</span>)}</div></div><div className="company-filter-row"><span className="company-filter-label"><CompanyLock/>公司地区</span><div className="company-filter-options">{["全部", "中国", "海外"].map((value) => <button type="button" key={value} className={(!region && value === "全部") || region === value ? "active" : ""} onClick={() => setRegion(value === "全部" ? "" : value as "中国" | "海外")}>{value}</button>)}</div></div><div className="company-filter-row"><span className="company-filter-label"><CompanyLock/>获投时间</span><div className="company-filter-options company-filter-static-options">{companyTimeOptions.map((value, index) => <span className={index === 0 ? "active" : ""} key={value}>{value}</span>)}<span className="company-date-field">▣　开始日期　　至　结束日期</span></div></div><div className="company-filter-row company-filter-row-last"><span className="company-filter-label"><CompanyLock/>其他指标</span><div className="company-other-filters"><label><span>成立时间</span><input readOnly placeholder="开始日期　 至　结束日期" aria-label="成立时间"/></label><label><span>投资方总部</span><input value={headquartersQuery} onChange={(event) => setHeadquartersQuery(event.target.value)} placeholder="请输入地区名称" aria-label="投资方总部"/></label><label><span>标签搜索</span><input value={q} onChange={(event) => setQ(event.target.value)} placeholder="请搜索企业画像标签" aria-label="标签搜索"/></label><span className="company-mini-filter"><b>BP状态</b><i>全部</i><span>有BP</span></span><span className="company-mini-filter"><b>获投状态</b><i>全部</i><span>未获投</span></span></div></div></div>
+      <section className="company-results-panel"><div className="company-results-heading"><div><div className="company-results-title"><h2>全部公司</h2><span>{filtered.length} 家结果</span></div><p>{q ? `搜索“${q}”的匹配结果` : "公开展示已完成基础核验的公司信息"}</p></div><span className="company-results-status"><i/>已核验数据</span></div><div className="company-table-wrap"><table className="company-table"><thead><tr><th className="company-check-col">对比</th><th className="company-index-col">序号</th><th>公司</th><th>一句话简介</th><th>行业领域</th><th>地区</th><th>主体类型</th><th>认证状态</th><th className="company-action-col">收藏</th></tr></thead><tbody>{filtered.map((organization, index) => <tr key={organization.id}><td className="company-check-col"><input type="checkbox" aria-label={`选择${organization.name}`}/></td><td className="company-index-col">{String(index + 1).padStart(2, "0")}</td><td><div className="company-name-cell"><div className={`company-table-mark ${organization.type}`}>{organization.name.slice(0, 1)}</div><div><strong>{organization.name}</strong><small>{organizationType[organization.type]}</small></div></div></td><td className="company-tagline-cell">{organization.tagline}</td><td><div className="company-focus-cell">{organization.focus.slice(0, 2).map((value) => <span key={value}>{value}</span>)}</div></td><td>{organization.region}</td><td>{organizationType[organization.type]}</td><td><span className="company-verified"><i/>已核验</span></td><td className="company-action-col"><FavoriteButton active={favoriteKeys.has(`organization:${organization.id}`)} onClick={() => onToggleFavorite("organization", organization.id)}/></td></tr>)}</tbody></table>{filtered.length === 0 && <div className="company-empty"><strong>没有匹配的公司</strong><p>调整行业、地区或关键词后再试。</p><button className="outline" onClick={clearFilters}>清除筛选</button></div>}</div></section></div>
+  </div></section></main>;
+}
+
+const institutionTypeOptions = ["全部", "孵化基金", "科研院所基金背景", "天使基金", "VC", "PE", "金融服务机构（FA/券商/保险/银行）", "二级市场基金", "家族办公室", "影响力投资"];
+const institutionSidebarItems = ["VC/PE", "大企业创投", "国资投资机构", "LP库"];
+const institutionSidebarMoreItems = ["基金管理人", "基金", "专题数据", "近期活跃CVC机构", "近期活跃LP", "近期活跃上市公司LP", "正在募集基金", "S基金"];
+
+function InstitutionsView({ organizations, favoriteKeys, onToggleFavorite }: { organizations: Organization[]; favoriteKeys: Set<string>; onToggleFavorite: (type: FavoriteResourceType, id: string) => void }) {
+  const [institutionType, setInstitutionType] = useState<"" | "investor" | "fa">("");
+  const [industry, setIndustry] = useState("");
+  const [region, setRegion] = useState<"" | "中国" | "海外">("");
+  const [fundCurrency, setFundCurrency] = useState("");
+  const [investmentStage, setInvestmentStage] = useState("");
+  const [locationQuery, setLocationQuery] = useState("");
+  const institutionOrganizations = organizations.filter((organization) => organization.type === "investor" || organization.type === "fa");
+  const normalizedLocation = locationQuery.trim().toLowerCase();
+  const industryAliases: Record<string, string[]> = { "智能制造": ["智能制造", "先进制造", "机器人工"], "消费": ["消费", "消费科技"] };
+  const industryMatches = (organization: Organization) => !industry || industry === "全部" || organization.focus.some((value) => (industryAliases[industry] ?? [industry]).some((alias) => value.includes(alias) || alias.includes(value)));
+  const regionMatches = (organization: Organization) => !region || (region === "中国" ? !organization.region.includes("海外") : organization.region.includes("海外"));
+  const filtered = institutionOrganizations.filter((organization) =>
+    (!institutionType || organization.type === institutionType) &&
+    industryMatches(organization) &&
+    regionMatches(organization) &&
+    (!normalizedLocation || organization.region.toLowerCase().includes(normalizedLocation)),
+  );
+  const chooseInstitutionType = (value: string) => {
+    if (value === "VC" || value === "PE") setInstitutionType("investor");
+    else if (value.startsWith("金融服务机构")) setInstitutionType("fa");
+    else setInstitutionType("");
+  };
+  const clearFilters = () => { setInstitutionType(""); setIndustry(""); setRegion(""); setFundCurrency(""); setInvestmentStage(""); setLocationQuery(""); };
+  return <main className="page institution-directory-page"><section className="section-wrap institution-directory-shell"><div className="institution-directory-layout">
+    <aside className="institution-sidebar" aria-label="创投机构分类导航"><div className="institution-sidebar-heading"><span>INSTITUTION INDEX</span><h1>创投机构</h1><p>按机构类型和投资偏好浏览。</p></div><nav className="institution-sidebar-nav">{institutionSidebarItems.map((item, index) => <button type="button" key={item} className={index === 0 && !institutionType ? "active" : ""} disabled={index > 0} onClick={index === 0 ? clearFilters : undefined}><StatIcon name={index === 0 ? "institution" : index === 1 ? "company" : "industry"}/><span className="institution-sidebar-item-label">{item}<CompanyLock/></span><small>{index === 0 ? institutionOrganizations.filter((organization) => organization.type === "investor").length : ""}</small></button>)}<div className="institution-sidebar-divider"/><div className="institution-sidebar-pro"><span>机构版</span><b>解锁</b></div>{institutionSidebarMoreItems.map((item) => <button type="button" key={item} disabled><StatIcon name="institution"/><span className="institution-sidebar-item-label">{item}<CompanyLock/></span></button>)}</nav><div className="institution-sidebar-note">更多机构画像与基金数据需升级机构版。</div></aside>
+    <div className="institution-workspace"><div className="institution-filter-panel"><div className="institution-filter-row"><span className="institution-filter-label"><CompanyLock/>机构类型</span><div className="institution-filter-options">{institutionTypeOptions.map((value, index) => { const interactive = index === 0 || value === "VC" || value === "PE" || value.startsWith("金融服务机构"); return interactive ? <button type="button" key={value} className={(!institutionType && index === 0) || ((value === "VC" || value === "PE") && institutionType === "investor") || (value.startsWith("金融服务机构") && institutionType === "fa") ? "active" : ""} onClick={() => chooseInstitutionType(value)}>{value}</button> : <span key={value}>{value}</span>; })}</div></div><div className="institution-filter-row"><span className="institution-filter-label"><CompanyLock/>投资领域</span><div className="institution-filter-options">{companyIndustryOptions.map((value, index) => <button type="button" key={value} className={(!industry && index === 0) || industry === value ? "active" : ""} onClick={() => setIndustry(index === 0 ? "" : value)}>{value}</button>)}</div></div><div className="institution-filter-row"><span className="institution-filter-label"><CompanyLock/>机构地区</span><div className="institution-filter-options">{["全部", "中国", "海外"].map((value) => <button type="button" key={value} className={(!region && value === "全部") || region === value ? "active" : ""} onClick={() => setRegion(value === "全部" ? "" : value as "中国" | "海外")}>{value}</button>)}</div></div><div className="institution-filter-row institution-filter-row-last"><span className="institution-filter-label"><CompanyLock/>其他指标</span><div className="institution-other-filters"><label><span>基金币种</span><Dropdown className="institution-dropdown" ariaLabel="选择基金币种" value={fundCurrency} onChange={setFundCurrency} options={[{ value: "", label: "请选择" }, { value: "人民币", label: "人民币" }, { value: "美元", label: "美元" }]}/></label><label><span>投资阶段</span><Dropdown className="institution-dropdown" ariaLabel="选择投资阶段" value={investmentStage} onChange={setInvestmentStage} options={[{ value: "", label: "请选择" }, { value: "早期", label: "早期" }, { value: "成长期", label: "成长期" }, { value: "成熟期", label: "成熟期" }]}/></label><label><span>成立时间</span><input readOnly placeholder="开始日期　 至　结束日期" aria-label="机构成立时间"/></label><label><span>投资时间</span><input readOnly placeholder="开始日期　 至　结束日期" aria-label="机构投资时间"/></label><label className="institution-location-field"><span>投资项目所在地</span><input value={locationQuery} onChange={(event) => setLocationQuery(event.target.value)} placeholder="请输入地区名称" aria-label="投资项目所在地"/></label><label className="institution-esg-field"><span>ESG机构</span><input type="checkbox" disabled aria-label="ESG机构"/></label></div></div></div>
+      <section className="institution-results-panel"><div className="institution-results-heading"><div><div className="institution-results-title"><h2>{institutionType === "fa" ? "FA 机构" : "VC/PE"}</h2><span>{filtered.length} 家结果</span></div><p>公开展示已完成基础核验的创投机构信息</p></div><span className="institution-results-status"><i/>已核验数据</span></div><div className="institution-table-wrap"><table className="institution-table"><thead><tr><th className="institution-check-col">对比</th><th className="institution-index-col">序号</th><th>机构名称</th><th>关联公司</th><th>已投公司数</th><th>投资细分赛道数</th><th>IPO公司数</th><th>投资事件数</th><th>总部所在地</th><th>成立时间</th><th className="institution-action-col">收藏</th></tr></thead><tbody>{filtered.map((organization, index) => <tr key={organization.id}><td className="institution-check-col"><input type="checkbox" aria-label={`选择${organization.name}`}/></td><td className="institution-index-col">{index + 1}</td><td><div className="institution-name-cell"><div className={`institution-table-mark ${organization.type}`}>{organization.name.slice(0, 1)}</div><div><strong>{organization.name}</strong><small>{organization.type === "fa" ? "FA 机构" : "VC/PE"}</small></div></div></td><td className="institution-related-cell">—</td><td>—</td><td>{organization.focus.length}</td><td>—</td><td>—</td><td>{organization.region}</td><td>—</td><td className="institution-action-col"><FavoriteButton active={favoriteKeys.has(`organization:${organization.id}`)} onClick={() => onToggleFavorite("organization", organization.id)}/></td></tr>)}</tbody></table>{filtered.length === 0 && <div className="institution-empty"><strong>没有匹配的机构</strong><p>调整机构类型、投资领域、地区或所在地后再试。</p><button className="outline" onClick={clearFilters}>清除筛选</button></div>}</div></section></div>
+  </div></section></main>;
 }
 
 function GovernmentView({ contacts, openContact, initialQuery = "" }: { contacts: GovernmentContact[]; openContact: (contact?: GovernmentContact) => void; initialQuery?: string }) {
   const [q, setQ] = useState(initialQuery); const [region, setRegion] = useState(""); useEffect(() => setQ(initialQuery), [initialQuery]);
   const normalized = q.trim().toLowerCase();
   const filtered = contacts.filter((contact) => (!region || contact.region === region) && (!normalized || [contact.name, contact.organizationName, contact.title, contact.region, ...contact.industries].some((value) => value.toLowerCase().includes(normalized))));
-  return <main className="page"><section className="page-hero government-hero"><div className="section-wrap reveal"><span>REGIONAL OPPORTUNITY</span><h1>让产业项目找到合适的落地区域</h1><p>联系方式不直接公开。提交需求后，平台运营人员将为你安排线下对接。</p><button className="primary large" onClick={() => openContact()}>提交招商对接需求</button></div></section><section className="section-wrap page-content"><SectionTitle eyebrow="GOVERNMENT CONTACTS" title="区域招商联系人" description="联系人均挂靠政府招商部门或园区机构，并经过平台核验。"/><div className="filter-bar"><input aria-label="搜索政府联系人" value={q} onChange={(event) => setQ(event.target.value)} placeholder="搜索地区、联系人或产业"/><select aria-label="选择地区" value={region} onChange={(event) => setRegion(event.target.value)}><option value="">全部地区</option>{[...new Set(contacts.map((contact) => contact.region))].map((value) => <option key={value}>{value}</option>)}</select></div>{q && <div className="result-line">搜索“{q}”找到 <b>{filtered.length}</b> 位联系人</div>}<div className="contact-grid">{filtered.map((contact) => <article className="contact-card reveal" key={contact.id}><div className="contact-avatar">{contact.name.slice(0, 1)}</div><div><span>{contact.organizationName}</span><h3>{contact.name} · {contact.title}</h3><p>{contact.region}</p><div className="tag-list">{contact.industries.map((item) => <span key={item}>{item}</span>)}</div><button className="outline" onClick={() => openContact(contact)}>申请联系</button></div></article>)}</div></section></main>;
+  const regions = [...new Set(contacts.map((contact) => contact.region))];
+  return (
+    <main className="page government-page">
+      <section className="page-hero government-hero">
+        <div className="section-wrap government-hero-inner reveal">
+          <div className="government-hero-copy">
+            <span>REGIONAL OPPORTUNITY</span>
+            <h1>让产业项目找到合适的落地区域</h1>
+            <p>联系方式不直接公开。提交需求后，平台运营人员将为你安排线下对接。</p>
+            <button className="primary large" onClick={() => openContact()}>提交招商对接需求 <b aria-hidden="true">→</b></button>
+          </div>
+          <aside className="government-hero-brief" aria-label="政府对接服务说明">
+            <div className="government-brief-topline"><span>OFFLINE MATCHING</span><i aria-hidden="true" /></div>
+            <strong>先说清楚项目，再匹配区域。</strong>
+            <p>平台根据产业方向、发展阶段和空间需求，安排对应联系人。</p>
+            <dl>
+              <div><dt>已登记联系人</dt><dd>{contacts.length}</dd></div>
+              <div><dt>覆盖区域</dt><dd>{regions.length}</dd></div>
+            </dl>
+          </aside>
+        </div>
+      </section>
+      <section className="section-wrap page-content government-content">
+        <div className="filter-bar government-filter-bar">
+          <label className="government-search-field"><span>搜索</span><input aria-label="搜索政府联系人" value={q} onChange={(event) => setQ(event.target.value)} placeholder="地区、联系人或产业关键词" /></label>
+          <label className="government-region-field"><span>区域</span><Dropdown className="government-filter-select" ariaLabel="选择地区" value={region} onChange={setRegion} options={[{ value: "", label: "全部地区" }, ...regions.map((value) => ({ value, label: value }))]} /></label>
+        </div>
+        {q && <div className="result-line">搜索“{q}”找到 <b>{filtered.length}</b> 位联系人</div>}
+        {filtered.length ? <div className="contact-grid">{filtered.map((contact, index) => <article className="contact-card reveal" key={contact.id}>
+          <div className="contact-card-rail"><span className="contact-card-index">{String(index + 1).padStart(2, "0")}</span><div className="contact-avatar">{contact.name.slice(0, 1)}</div></div>
+          <div className="contact-card-main"><div className="contact-card-topline"><span>{contact.organizationName}</span><em>{contact.region}</em></div><h3>{contact.name}</h3><p className="contact-title">{contact.title}</p><div className="tag-list">{contact.industries.map((item) => <span key={item}>{item}</span>)}</div><button className="contact-action" onClick={() => openContact(contact)}>申请联系 <b aria-hidden="true">→</b></button></div>
+        </article>)}</div> : <div className="government-empty"><strong>没有找到对应联系人</strong><p>换个地区或关键词试试，也可以直接提交招商对接需求。</p><button className="outline" onClick={() => openContact()}>提交对接需求</button></div>}
+      </section>
+    </main>
+  );
 }
 
 function ArticlesView({ articles, openArticle, initialQuery = "", favoriteKeys, onToggleFavorite }: { articles: Article[]; openArticle: (article: Article) => void; initialQuery?: string; favoriteKeys: Set<string>; onToggleFavorite: (type: FavoriteResourceType, id: string) => void }) {
   const [q, setQ] = useState(initialQuery); const [category, setCategory] = useState(""); useEffect(() => setQ(initialQuery), [initialQuery]);
   const normalized = q.trim().toLowerCase();
   const filtered = articles.filter((article) => (!category || article.category === category) && (!normalized || [article.title, article.summary, article.content, article.category].some((value) => value.toLowerCase().includes(normalized))));
-  return <main className="page"><section className="page-hero"><div className="section-wrap reveal"><span>VENTURE INSIGHTS</span><h1>创投与产业招商资讯</h1><p>提供市场观察、融资方法与招商实践，不构成投资建议。</p></div></section><section className="section-wrap page-content"><div className="filter-bar"><input aria-label="搜索资讯" value={q} onChange={(event) => setQ(event.target.value)} placeholder="搜索标题、行业或关键词"/><select aria-label="选择资讯分类" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">全部分类</option>{[...new Set(articles.map((article) => article.category))].map((value) => <option key={value}>{value}</option>)}</select></div>{q && <div className="result-line">搜索“{q}”找到 <b>{filtered.length}</b> 篇资讯</div>}<div className="article-grid wide">{filtered.map((article, index) => <button className="article-card reveal" key={article.id} onClick={() => openArticle(article)}><span className={`article-art tone-${index % 3}`}><em>{article.category}</em></span><div className="article-card-top"><small>{article.category}</small><span role="button" tabIndex={0} className={`favorite-inline${favoriteKeys.has(`article:${article.id}`) ? " active" : ""}`} onClick={(event) => { event.stopPropagation(); onToggleFavorite("article", article.id); }} onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); onToggleFavorite("article", article.id); } }}>{favoriteKeys.has(`article:${article.id}`) ? "★ 已收藏" : "☆ 收藏"}</span></div><h3>{article.title}</h3><p>{article.summary}</p><b>阅读全文 →</b></button>)}</div></section></main>;
+  return <main className="page"><section className="page-hero"><div className="section-wrap reveal"><span>VENTURE INSIGHTS</span><h1>创投与产业招商资讯</h1><p>提供市场观察、融资方法与招商实践，不构成投资建议。</p></div></section><section className="section-wrap page-content"><div className="filter-bar"><input aria-label="搜索资讯" value={q} onChange={(event) => setQ(event.target.value)} placeholder="搜索标题、行业或关键词"/><Dropdown ariaLabel="选择资讯分类" value={category} onChange={setCategory} options={[{ value: "", label: "全部分类" }, ...[...new Set(articles.map((article) => article.category))].map((value) => ({ value, label: value }))]} /></div>{q && <div className="result-line">搜索“{q}”找到 <b>{filtered.length}</b> 篇资讯</div>}<div className="article-grid wide">{filtered.map((article, index) => <button className="article-card reveal" key={article.id} onClick={() => openArticle(article)}><span className={`article-art tone-${index % 3}`}><em>{article.category}</em></span><div className="article-card-top"><small>{article.category}</small><span role="button" tabIndex={0} className={`favorite-inline${favoriteKeys.has(`article:${article.id}`) ? " active" : ""}`} onClick={(event) => { event.stopPropagation(); onToggleFavorite("article", article.id); }} onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); onToggleFavorite("article", article.id); } }}>{favoriteKeys.has(`article:${article.id}`) ? "★ 已收藏" : "☆ 收藏"}</span></div><h3>{article.title}</h3><p>{article.summary}</p><b>阅读全文 →</b></button>)}</div></section></main>;
+}
+
+type TelegraphTimeFilter = "all" | "3d" | "7d" | "15d" | "30d";
+const telegraphTimeOptions: Array<{ id: TelegraphTimeFilter; label: string }> = [
+  { id: "all", label: "不限" },
+  { id: "3d", label: "3 天" },
+  { id: "7d", label: "一周" },
+  { id: "15d", label: "15 天" },
+  { id: "30d", label: "一个月" },
+];
+
+function telegraphCategoryLabel(category: TelegraphCategory) {
+  return telegraphCategories.find((item) => item.id === category)?.label ?? "创投电报";
+}
+
+function telegraphEntryToStory(entry: TelegraphEntry): EditorialStory {
+  const category = telegraphCategoryLabel(entry.category);
+  return {
+    kind: "events",
+    navLabel: "创投电报",
+    eyebrow: `VENTURE TELEGRAPH · ${category.toUpperCase()}`,
+    dateLabel: `${entry.date} · ${entry.timeLabel}`,
+    title: entry.title,
+    subtitle: entry.summary,
+    lead: entry.detail,
+    metrics: [
+      { value: entry.date.slice(5).replace("-", "."), label: "发生时间" },
+      { value: category, label: "电报分类" },
+      { value: "QF", label: "启峰编辑" },
+    ],
+    sections: [
+      { index: "01", label: "电报摘要", title: "这条消息，先看什么", body: entry.summary },
+      { index: "02", label: "编辑观察", title: "从公开信息里留下的判断", body: entry.detail },
+      { index: "03", label: "继续关注", title: "下一步要看它能否进入现场", body: "创投电报只记录当前可确认的信息。后续融资交割、客户验证、产品交付或治理变化，才会决定这条消息的长期价值。" },
+    ],
+    pullQuote: "消息是起点，能够被验证的进展才是下一条值得追踪的电报。",
+  };
+}
+
+function TelegraphView({ entries, go, openEntry }: { entries: TelegraphEntry[]; go: (view: View) => void; openEntry: (entry: TelegraphEntry) => void }) {
+  const [query, setQuery] = useState("");
+  const [timeFilter, setTimeFilter] = useState<TelegraphTimeFilter>("all");
+  const [selectedCategories, setSelectedCategories] = useState<Set<TelegraphCategory>>(() => new Set([telegraphCategories[0].id]));
+  const allSelected = selectedCategories.size === telegraphCategories.length;
+  const toggleCategory = (category: TelegraphCategory) => {
+    setSelectedCategories((current) => {
+      const next = new Set(current);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    const days = timeFilter === "all" ? null : Number.parseInt(timeFilter, 10);
+    const latest = new Date("2026-08-03T23:59:59+08:00").getTime();
+    return entries.filter((entry) => {
+      const matchesCategory = selectedCategories.has(entry.category);
+      const matchesQuery = !normalized || [entry.title, entry.summary, telegraphCategoryLabel(entry.category)].some((value) => value.toLowerCase().includes(normalized));
+      const entryTime = new Date(`${entry.date}T23:59:59+08:00`).getTime();
+      const matchesTime = days === null || entryTime >= latest - days * 24 * 60 * 60 * 1000;
+      return matchesCategory && matchesQuery && matchesTime;
+    });
+  }, [entries, query, selectedCategories, timeFilter]);
+  const groups = useMemo(() => {
+    const grouped = new Map<string, TelegraphEntry[]>();
+    filtered.forEach((entry) => grouped.set(entry.date, [...(grouped.get(entry.date) ?? []), entry]));
+    return [...grouped.entries()].sort(([a], [b]) => b.localeCompare(a));
+  }, [filtered]);
+  return <main className="telegraph-page">
+    <section className="telegraph-banner"><div className="section-wrap"><span>VENTURE TELEGRAPH</span><h1>创投电报</h1><p>把融资、并购、产品与机构变化，整理成可以快速读完的一线信息。</p></div></section>
+    <section className="section-wrap telegraph-layout">
+      <aside className="telegraph-sidebar">
+        <div className="telegraph-sidebar-brand"><span>QF</span><div><b>创投电报</b><small>VENTURE TELEGRAPH</small></div></div>
+        <label className="telegraph-search"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="请输入关键词搜索" aria-label="搜索创投电报"/><span aria-hidden="true">⌕</span></label>
+        <fieldset className="telegraph-filter"><legend>时间选择</legend><div className="telegraph-time-grid">{telegraphTimeOptions.map((option) => <label key={option.id}><input type="radio" name="telegraph-time" checked={timeFilter === option.id} onChange={() => setTimeFilter(option.id)}/><span>{option.label}</span></label>)}</div></fieldset>
+        <fieldset className="telegraph-filter"><legend>类型选择</legend><label className="telegraph-check-all"><input type="checkbox" checked={allSelected} onChange={() => setSelectedCategories(allSelected ? new Set([telegraphCategories[0].id]) : new Set(telegraphCategories.map((item) => item.id)))}/><span>全选</span></label><div className="telegraph-category-grid">{telegraphCategories.map((category) => <label key={category.id}><input type="checkbox" checked={selectedCategories.has(category.id)} onChange={() => toggleCategory(category.id)}/><span>{category.label}</span></label>)}</div></fieldset>
+        <button className="telegraph-subscribe" onClick={() => go("research")}>订阅研究与电报 <span aria-hidden="true">→</span></button>
+        <div className="telegraph-side-links"><button onClick={() => go("research")}>研究报告</button><button onClick={() => go("home")}>返回首页</button></div>
+      </aside>
+      <section className="telegraph-feed">
+        <header className="telegraph-feed-heading"><div><span>VENTURE TELEGRAPH</span><h2>今日电报</h2><p>默认展示投资事件，也可以从左侧打开其他分类。</p></div><strong>{filtered.length}<small> 条</small></strong></header>
+        {groups.length ? groups.map(([date, dayEntries]) => <div className="telegraph-day" key={date}><div className="telegraph-day-heading"><span>{date}</span><i/><small>{new Date(`${date}T12:00:00+08:00`).toLocaleDateString("zh-CN", { weekday: "long" })}</small></div>{dayEntries.map((entry) => <article className="telegraph-entry" key={entry.id}><button className="telegraph-entry-main" onClick={() => openEntry(entry)}><div className="telegraph-entry-title"><h3>{entry.title}</h3><span>{telegraphCategoryLabel(entry.category)}</span></div><p>{entry.summary} <b>查看详情</b></p><time>{entry.timeLabel}</time></button><button className="telegraph-share" aria-label={`分享${entry.title}`} onClick={() => navigator.clipboard?.writeText(entry.title).catch(() => undefined)}>分享</button></article>)}</div>) : <div className="telegraph-empty"><b>没有符合条件的电报</b><p>换一个分类或关键词，继续查看创投动态。</p><button onClick={() => { setQuery(""); setSelectedCategories(new Set([telegraphCategories[0].id])); setTimeFilter("all"); }}>恢复默认</button></div>}
+      </section>
+    </section>
+  </main>;
+}
+
+function EditorialView({ kind, go, story: storyOverride, backView = "home", backLabel }: { kind: EditorialKind; go: (view: View) => void; story?: EditorialStory; backView?: View; backLabel?: string }) {
+  const story = storyOverride ?? editorialStories[kind];
+  const otherKind: EditorialKind = kind === "research" ? "events" : "research";
+  const otherStory = editorialStories[otherKind];
+  return <main className={`editorial-page editorial-${kind}`}>
+    <section className="editorial-hero">
+      <div className="section-wrap editorial-hero-grid">
+        <div className="editorial-hero-copy reveal">
+          <button className="editorial-back" onClick={() => go(backView)}>← {backLabel ?? "返回首页"}</button>
+          <span className="editorial-eyebrow">{story.eyebrow}</span>
+          <h1>{story.title}</h1>
+          <p className="editorial-subtitle">{story.subtitle}</p>
+          <div className="editorial-meta"><span>{story.dateLabel}</span><span>启峰创投 · 专题编辑</span></div>
+        </div>
+        <div className="editorial-hero-mark" aria-hidden="true"><span>{kind === "research" ? "R / 01" : "E / 04"}</span><small>{kind === "research" ? "RESEARCH" : "EVENT BRIEF"}</small><i /></div>
+      </div>
+    </section>
+    <section className="section-wrap editorial-intro-grid">
+      <article className="editorial-lead reveal"><span>EDITOR'S NOTE</span><p>{story.lead}</p></article>
+      <div className="editorial-metrics">{story.metrics.map((metric) => <div key={metric.label}><b>{metric.value}</b><span>{metric.label}</span></div>)}</div>
+    </section>
+    <section className="section-wrap editorial-story-grid">
+      <div className="editorial-section-list">{story.sections.map((section) => <article className="editorial-section reveal" key={section.index}><div className="editorial-section-index"><b>{section.index}</b><span>{section.label}</span></div><div><h2>{section.title}</h2><p>{section.body}</p></div></article>)}</div>
+      <aside className="editorial-pullquote reveal"><span>ONE LINE</span><p>“{story.pullQuote}”</p><small>启峰创投专题观察</small></aside>
+    </section>
+    <section className="section-wrap editorial-next reveal"><div><span>CONTINUE READING</span><h2>{otherStory.navLabel}</h2><p>{otherStory.subtitle}</p></div><button className="primary" onClick={() => go(otherKind)}>打开专题 <span aria-hidden="true">→</span></button></section>
+  </main>;
 }
 
 function ContactModal({ contact, onClose }: { contact?: GovernmentContact; onClose: () => void }) {
@@ -316,7 +691,7 @@ function ArticleModal({ article, onClose }: { article: Article; onClose: () => v
 type RoleId = "user" | "investor" | "fa" | "government" | "project";
 type RoleIconName = "user" | "investor" | "fa" | "government" | "project";
 const roleOptions: Array<{ id: RoleId; label: string; description: string; icon: RoleIconName }> = [
-  { id: "user", label: "普通用户", description: "浏览项目 · 关注创投资讯", icon: "user" },
+  { id: "user", label: "普通用户", description: "浏览项目 · 关注研究与事件", icon: "user" },
   { id: "investor", label: "投资机构", description: "发现项目 · 管理关注", icon: "investor" },
   { id: "fa", label: "FA", description: "连接资源 · 推荐项目", icon: "fa" },
   { id: "government", label: "政府招商", description: "产业招商 · 项目引进", icon: "government" },
@@ -334,7 +709,7 @@ function RoleIcon({ name }: { name: RoleIconName }) {
 
 function RoleSelectionModal({ onClose, onSelect }: { onClose: () => void; onSelect: (role: RoleId) => void }) {
   const [selectedRole, setSelectedRole] = useState<RoleId>("user");
-  return <div className="role-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="role-modal" role="dialog" aria-modal="true" aria-labelledby="role-title"><button className="role-close" aria-label="关闭" onClick={onClose}>×</button><span className="role-eyebrow">CHOOSE YOUR ROLE</span><h2 id="role-title">你想以什么身份进入创投智联？</h2><p className="role-intro">不同身份会进入对应工作台，Demo 中可以随时切换。</p><label className="role-select-label">选择身份<select className="role-select" aria-label="选择身份" value={selectedRole} onChange={(event) => { const next = event.target.value as RoleId; setSelectedRole(next); onSelect(next); }}>{roleOptions.map((role) => <option value={role.id} key={role.id}>{role.label}</option>)}</select></label><div className="role-grid">{roleOptions.map((role) => <button className={`role-card${selectedRole === role.id ? " selected" : ""}`} key={role.id} onClick={() => { setSelectedRole(role.id); onSelect(role.id); }}><span className={`role-icon role-icon-${role.id}`}><RoleIcon name={role.icon}/></span><b>{role.label}</b><small>{role.description}</small></button>)}</div><button className="role-continue" onClick={onClose}>继续浏览公开市场</button></section></div>;
+  return <div className="role-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="role-modal" role="dialog" aria-modal="true" aria-labelledby="role-title"><button className="role-close" aria-label="关闭" onClick={onClose}>×</button><span className="role-eyebrow">CHOOSE YOUR ROLE</span><h2 id="role-title">你想以什么身份进入创投智联？</h2><p className="role-intro">不同身份会进入对应工作台，Demo 中可以随时切换。</p><label className="role-select-label">选择身份<Dropdown className="role-select" ariaLabel="选择身份" value={selectedRole} onChange={(value) => { const next = value as RoleId; setSelectedRole(next); onSelect(next); }} options={roleOptions.map((role) => ({ value: role.id, label: role.label }))} /></label><div className="role-grid">{roleOptions.map((role) => <button className={`role-card${selectedRole === role.id ? " selected" : ""}`} key={role.id} onClick={() => { setSelectedRole(role.id); onSelect(role.id); }}><span className={`role-icon role-icon-${role.id}`}><RoleIcon name={role.icon}/></span><b>{role.label}</b><small>{role.description}</small></button>)}</div><button className="role-continue" onClick={onClose}>继续浏览公开市场</button></section></div>;
 }
 
 const authRoleLabels: Record<string, string> = { user: "普通用户", project: "项目方", investor: "投资机构", fa: "FA 机构", government: "政府招商", platform: "平台管理员" };
@@ -363,7 +738,7 @@ function AccountView({ go }: { go: (view: View) => void }) {
   };
   if (state === "loading") return <main className="account-page"><div className="account-state">正在加载账号信息…</div></main>;
   if (state === "error" || !actor) return <main className="account-page"><div className="account-state"><h2>登录状态已失效</h2><p>请重新登录后再查看账号中心。</p><button className="primary" onClick={() => go("auth")}>重新登录</button></div></main>;
-  return <main className="account-page"><section className="section-wrap account-shell"><div className="account-heading"><div><span className="eyebrow">ACCOUNT CENTER</span><h1>账号中心</h1><p>查看你的平台身份和当前可用入口。</p></div><button className="outline" onClick={logout}>退出登录</button></div><div className="account-grid"><article className="account-profile"><div className="account-avatar">{(actor.displayName ?? "用").slice(0, 1)}</div><div><span className="account-label">当前身份</span><h2>{actor.displayName ?? "平台用户"}</h2><p>{authRoleLabels[actor.organizationType] ?? "平台用户"} · {actor.organizationName ?? "创投智联"}</p></div></article><article className="account-card"><span className="account-label">账号状态</span><strong className="account-status"><i/>已激活</strong><small>{actor.organizationVerified ? "主体已通过平台认证" : "当前主体等待进一步认证"}</small></article><article className="account-card"><span className="account-label">登录方式</span><strong>{actor.email ?? actor.phone ?? "未设置"}</strong><small>{actor.email ? "邮箱地址" : "手机号"}</small></article><article className="account-card"><span className="account-label">账号标识</span><strong>{actor.userId.slice(0, 8)}…</strong><small>注册于 {actor.createdAt ? new Date(actor.createdAt).toLocaleDateString("zh-CN") : "近期"}</small></article></div><section className="favorites-panel"><div className="account-heading"><div><span className="eyebrow">MY COLLECTION</span><h2>我的收藏</h2><p>收藏的项目、机构和资讯会在这里保留。</p></div><strong>{favorites.length} 项</strong></div>{favorites.length ? <div className="favorite-list">{favorites.map((favorite) => <button key={`${favorite.resourceType}:${favorite.resourceId}`} onClick={() => go(favorite.resourceType === "project" ? "projects" : favorite.resourceType === "organization" ? "organizations" : "articles")}><span>{favorite.resourceType === "project" ? "项目" : favorite.resourceType === "organization" ? "机构" : "资讯"}</span><b>{favorite.resourceId}</b><small>›</small></button>)}</div> : <div className="favorite-empty">还没有收藏内容，去项目库和机构库看看吧。</div>}</section>{actor.organizationType === "project" && <section className="project-submit-panel"><div className="account-heading"><div><span className="eyebrow">PROJECT SUBMISSION</span><h2>提交项目与 BP</h2><p>填写项目公开摘要，上传 PDF/PPT/PPTX，提交后由平台审核。</p></div><button className="outline" onClick={() => setShowProjectForm((value) => !value)}>{showProjectForm ? "收起" : "新增项目"}</button></div>{showProjectForm && <form className="project-submit-form" onSubmit={submitProject}><input required placeholder="项目名称" value={projectForm.name} onChange={(event) => setProjectForm({ ...projectForm, name: event.target.value })}/><input required placeholder="行业标签" value={projectForm.industry} onChange={(event) => setProjectForm({ ...projectForm, industry: event.target.value })}/><input required placeholder="所在地区" value={projectForm.region} onChange={(event) => setProjectForm({ ...projectForm, region: event.target.value })}/><input required placeholder="融资阶段" value={projectForm.stage} onChange={(event) => setProjectForm({ ...projectForm, stage: event.target.value })}/><input required placeholder="融资需求，如 1000 万" value={projectForm.financingRange} onChange={(event) => setProjectForm({ ...projectForm, financingRange: event.target.value })}/><select value={projectForm.identityMode} onChange={(event) => setProjectForm({ ...projectForm, identityMode: event.target.value as "named" | "anonymous" })}><option value="named">实名展示</option><option value="anonymous">匿名展示</option></select><textarea required minLength={20} placeholder="项目公开摘要（至少 20 字）" value={projectForm.summary} onChange={(event) => setProjectForm({ ...projectForm, summary: event.target.value })}/>{projectForm.identityMode === "anonymous" && <input required placeholder="匿名项目名称" value={projectForm.anonymousName} onChange={(event) => setProjectForm({ ...projectForm, anonymousName: event.target.value })}/>}<label className="file-field">上传 BP（可选）<input name="bp" type="file" accept=".pdf,.ppt,.pptx" /></label><button className="primary" disabled={projectSaving}>{projectSaving ? "提交中…" : "提交审核"}</button>{projectMessage && <p className="project-submit-message">{projectMessage}</p>}</form>}</section>}<div className="account-actions"><div><span className="eyebrow">DISCOVER MORE</span><h2>继续探索平台</h2></div><div><button className="primary" onClick={() => go("projects")}>浏览项目</button><button className="outline" onClick={() => go("organizations")}>查看机构</button><button className="outline" onClick={() => go("articles")}>阅读资讯</button></div></div></section></main>;
+  return <main className="account-page"><section className="section-wrap account-shell"><div className="account-heading"><div><span className="eyebrow">ACCOUNT CENTER</span><h1>账号中心</h1><p>查看你的平台身份和当前可用入口。</p></div><button className="outline" onClick={logout}>退出登录</button></div><div className="account-grid"><article className="account-profile"><div className="account-avatar">{(actor.displayName ?? "用").slice(0, 1)}</div><div><span className="account-label">当前身份</span><h2>{actor.displayName ?? "平台用户"}</h2><p>{authRoleLabels[actor.organizationType] ?? "平台用户"} · {actor.organizationName ?? "创投智联"}</p></div></article><article className="account-card"><span className="account-label">账号状态</span><strong className="account-status"><i/>已激活</strong><small>{actor.organizationVerified ? "主体已通过平台认证" : "当前主体等待进一步认证"}</small></article><article className="account-card"><span className="account-label">登录方式</span><strong>{actor.email ?? actor.phone ?? "未设置"}</strong><small>{actor.email ? "邮箱地址" : "手机号"}</small></article><article className="account-card"><span className="account-label">账号标识</span><strong>{actor.userId.slice(0, 8)}…</strong><small>注册于 {actor.createdAt ? new Date(actor.createdAt).toLocaleDateString("zh-CN") : "近期"}</small></article></div><section className="favorites-panel"><div className="account-heading"><div><span className="eyebrow">MY COLLECTION</span><h2>我的收藏</h2><p>收藏的项目、机构和专题会在这里保留。</p></div><strong>{favorites.length} 项</strong></div>{favorites.length ? <div className="favorite-list">{favorites.map((favorite) => <button key={`${favorite.resourceType}:${favorite.resourceId}`} onClick={() => go(favorite.resourceType === "project" ? "projects" : favorite.resourceType === "organization" ? "organizations" : "research")}><span>{favorite.resourceType === "project" ? "项目" : favorite.resourceType === "organization" ? "机构" : "专题"}</span><b>{favorite.resourceId}</b><small>›</small></button>)}</div> : <div className="favorite-empty">还没有收藏内容，去项目库和机构库看看吧。</div>}</section>{actor.organizationType === "project" && <section className="project-submit-panel"><div className="account-heading"><div><span className="eyebrow">PROJECT SUBMISSION</span><h2>提交项目与 BP</h2><p>填写项目公开摘要，上传 PDF/PPT/PPTX，提交后由平台审核。</p></div><button className="outline" onClick={() => setShowProjectForm((value) => !value)}>{showProjectForm ? "收起" : "新增项目"}</button></div>{showProjectForm && <form className="project-submit-form" onSubmit={submitProject}><input required placeholder="项目名称" value={projectForm.name} onChange={(event) => setProjectForm({ ...projectForm, name: event.target.value })}/><input required placeholder="行业标签" value={projectForm.industry} onChange={(event) => setProjectForm({ ...projectForm, industry: event.target.value })}/><input required placeholder="所在地区" value={projectForm.region} onChange={(event) => setProjectForm({ ...projectForm, region: event.target.value })}/><input required placeholder="融资阶段" value={projectForm.stage} onChange={(event) => setProjectForm({ ...projectForm, stage: event.target.value })}/><input required placeholder="融资需求，如 1000 万" value={projectForm.financingRange} onChange={(event) => setProjectForm({ ...projectForm, financingRange: event.target.value })}/><Dropdown className="project-submit-select" ariaLabel="项目身份展示方式" value={projectForm.identityMode} onChange={(value) => setProjectForm({ ...projectForm, identityMode: value as "named" | "anonymous" })} options={[{ value: "named", label: "实名展示" }, { value: "anonymous", label: "匿名展示" }]} /><textarea required minLength={20} placeholder="项目公开摘要（至少 20 字）" value={projectForm.summary} onChange={(event) => setProjectForm({ ...projectForm, summary: event.target.value })}/>{projectForm.identityMode === "anonymous" && <input required placeholder="匿名项目名称" value={projectForm.anonymousName} onChange={(event) => setProjectForm({ ...projectForm, anonymousName: event.target.value })}/>}<label className="file-field">上传 BP（可选）<input name="bp" type="file" accept=".pdf,.ppt,.pptx" /></label><button className="primary" disabled={projectSaving}>{projectSaving ? "提交中…" : "提交审核"}</button>{projectMessage && <p className="project-submit-message">{projectMessage}</p>}</form>}</section>}<div className="account-actions"><div><span className="eyebrow">DISCOVER MORE</span><h2>继续探索平台</h2></div><div><button className="primary" onClick={() => go("projects")}>浏览项目</button><button className="outline" onClick={() => go("organizations")}>查看机构</button><button className="outline" onClick={() => go("research")}>看研究报告</button></div></div></section></main>;
 }
 
 function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) => void }) {
@@ -421,7 +796,7 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
       <ForgotPasswordCard />
       <section className="auth-story">
         <div className="auth-story-inner">
-          <button className="auth-brand" onClick={() => go("home")}><VentureLogo/><span><b>创投智联</b><small>VENTURE LINK</small></span></button>
+          <button className="auth-brand" onClick={() => go("home")}><QifengLogo /></button>
           <div className="auth-copy"><span>VENTURE LINK NETWORK</span><h1>让每一次连接，<strong>都更有价值。</strong></h1><p>一个更高效的创投连接平台，让项目、资本与产业资源在可信的环境里彼此成就。</p></div>
           <div className="auth-network-card">
             <div className="auth-network-top"><span>ONE PLATFORM</span><b>05 ROLES</b></div>
@@ -458,9 +833,7 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
               {mode === "register" && (
                 <>
                   <label className="auth-full">身份
-                    <select value={role} onChange={(event) => setRole(event.target.value as RoleId)}>
-                      {roleOptions.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}
-                    </select>
+                    <Dropdown className="auth-role-select" ariaLabel="身份" value={role} onChange={(value) => setRole(value as RoleId)} options={roleOptions.map((item) => ({ value: item.id, label: item.label }))} />
                   </label>
                   <div className="auth-role-grid">
                     {roleOptions.map((item) => <button type="button" key={item.id} className={role === item.id ? "selected" : ""} onClick={() => setRole(item.id)}><span className={`auth-role-icon role-icon-${item.id}`}><RoleIcon name={item.icon}/></span><b>{item.label}</b><small>{item.description}</small></button>)}
@@ -524,7 +897,7 @@ function RecentViewsStrip({ views, projects, articles, go }: { views: RecentView
     if (view.resourceType === "article") return articles.find((article) => article.id === view.resourceId)?.title ?? view.resourceId;
     return view.resourceId;
   };
-  return <section className="section-wrap recent-views-strip"><div className="section-heading-row"><SectionTitle eyebrow="RECENTLY VIEWED" title="最近浏览" description="登录后自动保留最近查看的项目与资讯。"/><span className="recent-count">{views.length} 条</span></div>{views.length ? <div className="recent-view-list">{views.slice(0, 6).map((view) => <button key={`${view.resourceType}:${view.resourceId}`} onClick={() => go(view.resourceType === "project" ? "projects" : "articles")}><span>{view.resourceType === "project" ? "项目" : "资讯"}</span><b>{label(view)}</b><small>{new Date(view.viewedAt).toLocaleDateString("zh-CN")}</small></button>)}</div> : <div className="recent-empty">还没有浏览记录，去项目库或资讯页看看吧。</div>}</section>;
+  return <section className="section-wrap recent-views-strip"><div className="section-heading-row"><SectionTitle eyebrow="RECENTLY VIEWED" title="最近浏览" description="登录后自动保留最近查看的项目与专题。"/><span className="recent-count">{views.length} 条</span></div>{views.length ? <div className="recent-view-list">{views.slice(0, 6).map((view) => <button key={`${view.resourceType}:${view.resourceId}`} onClick={() => go(view.resourceType === "project" ? "projects" : "research")}><span>{view.resourceType === "project" ? "项目" : "专题"}</span><b>{label(view)}</b><small>{new Date(view.viewedAt).toLocaleDateString("zh-CN")}</small></button>)}</div> : <div className="recent-empty">还没有浏览记录，去项目库或研究与事件看看吧。</div>}</section>;
 }
 
 function MyProjectsStrip() {
@@ -617,7 +990,7 @@ export default function App() {
   const [favoriteKeys, setFavoriteKeys] = useState<Set<string>>(new Set());
   const [recentViews, setRecentViews] = useState<RecentView[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedProject, setSelectedProject] = useState<Project>(); const [selectedArticle, setSelectedArticle] = useState<Article>(); const [contactModal, setContactModal] = useState<{ open: boolean; contact?: GovernmentContact }>({ open: false }); const [roleModalOpen, setRoleModalOpen] = useState(false); const [selectedRole, setSelectedRole] = useState<RoleId>();
+  const [selectedProject, setSelectedProject] = useState<Project>(); const [selectedArticle, setSelectedArticle] = useState<Article>(); const [selectedTelegraph, setSelectedTelegraph] = useState<TelegraphEntry>(); const [contactModal, setContactModal] = useState<{ open: boolean; contact?: GovernmentContact }>({ open: false }); const [roleModalOpen, setRoleModalOpen] = useState(false); const [selectedRole, setSelectedRole] = useState<RoleId>();
   useEffect(() => { const onHash = () => { const next = window.location.hash.slice(1) as View; if (next === "auth" || next === "account" || navItems.some((item) => item.id === next)) setView(next); }; window.addEventListener("hashchange", onHash); return () => window.removeEventListener("hashchange", onHash); }, []);
   useEffect(() => { Promise.all([api.projects(), api.organizations(), api.contacts(), api.articles()]).then(([p, o, c, a]) => { setProjects(p.projects); setOrganizations(o.organizations); setContacts(c.contacts); setArticles(a.articles); }).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false)); }, []);
   useEffect(() => { if (!window.localStorage.getItem("venture_session")) return; api.favorites().then(({ favorites }) => setFavoriteKeys(new Set(favorites.map((favorite) => `${favorite.resourceType}:${favorite.resourceId}`)))).catch(() => undefined); }, []);
@@ -640,10 +1013,11 @@ export default function App() {
     elements.forEach((element) => observer.observe(element));
     return () => observer.disconnect();
   }, [loading, view]);
-  const go = (next: View, query = "") => { setView(next); setSearchQuery(query); window.location.hash = next; window.scrollTo({ top: 0, behavior: "smooth" }); setMenuOpen(false); };
+  const go = (next: View, query = "") => { setSelectedTelegraph(undefined); setView(next); setSearchQuery(query); window.location.hash = next; window.scrollTo({ top: 0, behavior: "smooth" }); setMenuOpen(false); };
   const handleSearch = (query: string, target: SearchTarget) => go(target, query);
   const openProject = (project: Project) => { if (window.localStorage.getItem("venture_session")) { void api.recordRecentView("project", project.id); setRecentViews((current) => [{ resourceType: "project" as const, resourceId: project.id, viewedAt: new Date().toISOString() }, ...current.filter((view) => !(view.resourceType === "project" && view.resourceId === project.id))].slice(0, 20)); } setSelectedProject(project); };
   const openArticle = (article: Article) => { if (window.localStorage.getItem("venture_session")) { void api.recordRecentView("article", article.id); setRecentViews((current) => [{ resourceType: "article" as const, resourceId: article.id, viewedAt: new Date().toISOString() }, ...current.filter((view) => !(view.resourceType === "article" && view.resourceId === article.id))].slice(0, 20)); } setSelectedArticle(article); };
+  const openTelegraph = (entry: TelegraphEntry) => { setSelectedTelegraph(entry); setSearchQuery(""); window.location.hash = "events"; window.scrollTo({ top: 0, behavior: "smooth" }); setMenuOpen(false); };
   const toggleFavorite = async (resourceType: FavoriteResourceType, resourceId: string) => {
     if (!window.localStorage.getItem("venture_session")) { go("auth"); return; }
     const key = `${resourceType}:${resourceId}`;
@@ -652,12 +1026,15 @@ export default function App() {
       else { await api.addFavorite(resourceType, resourceId); setFavoriteKeys((current) => new Set(current).add(key)); }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "收藏失败"); }
   };
-  let content = <HomeView projects={projects} organizations={organizations} contacts={contacts} articles={articles} go={go} openProject={openProject} openArticle={openArticle} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
+  let content = <HomeView projects={projects} organizations={organizations} contacts={contacts} go={go} openProject={openProject} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
   if (view === "projects") content = <ProjectsView projects={projects} openProject={openProject} initialQuery={searchQuery} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
   if (view === "organizations") content = <OrganizationsView organizations={organizations} initialQuery={searchQuery} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
+  if (view === "institutions") content = <InstitutionsView organizations={organizations} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
   if (view === "government") content = <GovernmentView contacts={contacts} openContact={(contact) => setContactModal({ open: true, contact })} initialQuery={searchQuery}/>;
+  if (view === "research") content = <EditorialView kind="research" go={go}/>;
+  if (view === "events") content = selectedTelegraph ? <EditorialView kind="events" story={telegraphEntryToStory(selectedTelegraph)} go={go} backView="events" backLabel="返回创投电报"/> : <TelegraphView entries={telegraphEntries} go={go} openEntry={openTelegraph}/>;
   if (view === "articles") content = <ArticlesView articles={articles} openArticle={openArticle} initialQuery={searchQuery} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
   if (view === "auth") content = <AuthView initialRole={selectedRole} go={go}/>;
   if (view === "account") content = <><AccountView go={go}/><NotificationsStrip/><AccountProfileStrip/><EmailVerificationStrip/><AccountSecurityStrip/><MyProjectsStrip/><MyBpRequestsStrip/><IncomingBpRequestsStrip/><MyContactRequestsStrip/><RecentViewsStrip views={recentViews} projects={projects} articles={articles} go={go}/></>;
-  return <div className={`site-shell view-${view}`}><header className="site-header"><div className="header-inner"><button className="brand" onClick={() => go("home")}><span>V</span><div><b>创投智联</b><small>VENTURE LINK</small></div></button><button className="menu-button" aria-label="打开导航" onClick={() => setMenuOpen(!menuOpen)}><i/><i/><i/></button><nav className={menuOpen ? "open" : ""}>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => go(item.id)}>{item.label}</button>)}</nav><GlobalSearch projects={projects} organizations={organizations} contacts={contacts} articles={articles} onSearch={handleSearch}/><button className="header-cta" onClick={() => setRoleModalOpen(true)}>选择身份</button></div></header>{loading ? <div className="loading">正在连接创投资源…</div> : error ? <div className="loading error">载入失败：{error}</div> : content}<footer><div className="section-wrap footer-grid"><div><div className="footer-brand"><span>V</span><b>创投智联</b></div><p>连接项目、资本与政府产业资源。</p></div><div><b>平台导航</b><button onClick={() => go("projects")}>项目库</button><button onClick={() => go("organizations")}>机构库</button><button onClick={() => go("government")}>政府对接</button></div><div><b>安全原则</b><span>主体认证</span><span>最小权限</span><span>访问留痕</span></div><div><b>当前版本</b><span>试点 MVP</span><span>线下登记与对接</span><span>正式上线需备案域名</span></div></div><div className="footer-bottom">© 2026 创投智联 · 本平台信息仅供交流，不构成投资建议</div></footer>{roleModalOpen && <RoleSelectionModal onClose={() => setRoleModalOpen(false)} onSelect={(role) => { setSelectedRole(role); setRoleModalOpen(false); go("auth"); }}/>} {contactModal.open && <ContactModal contact={contactModal.contact} onClose={() => setContactModal({ open: false })}/>} {selectedProject && <ProjectModal project={selectedProject} onClose={() => setSelectedProject(undefined)}/>} {selectedArticle && <ArticleModal article={selectedArticle} onClose={() => setSelectedArticle(undefined)}/>}</div>;
+  return <div className={`site-shell view-${view}`}><header className="site-header"><div className="header-inner"><button className="brand" onClick={() => go("home")}><QifengLogo /></button><button className="menu-button" aria-label="打开导航" onClick={() => setMenuOpen(!menuOpen)}><i/><i/><i/></button><nav className={menuOpen ? "open" : ""}>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => go(item.id)}>{item.label}</button>)}</nav><GlobalSearch projects={projects} organizations={organizations} contacts={contacts} onSearch={handleSearch}/><button className="header-cta" onClick={() => { setSelectedRole("user"); go("auth"); }}>登录注册</button></div></header>{loading ? <div className="loading">正在连接创投资源…</div> : error ? <div className="loading error">载入失败：{error}</div> : content}<footer><div className="section-wrap footer-grid"><div><div className="footer-brand"><QifengLogo /></div><p>连接项目、资本与政府产业资源。</p></div><div><b>平台导航</b><button onClick={() => go("projects")}>投融资</button><button onClick={() => go("organizations")}>公司</button><button onClick={() => go("institutions")}>创投机构</button><button onClick={() => go("government")}>政府对接</button><button onClick={() => go("research")}>研究报告</button><button onClick={() => go("events")}>创投电报</button></div><div><b>安全原则</b><span>主体认证</span><span>最小权限</span><span>访问留痕</span></div><div><b>当前版本</b><span>试点 MVP</span><span>线下登记与对接</span><span>正式上线需备案域名</span></div></div><div className="footer-bottom">© 2026 创投智联 · 本平台信息仅供交流，不构成投资建议</div></footer>{roleModalOpen && <RoleSelectionModal onClose={() => setRoleModalOpen(false)} onSelect={(role) => { setSelectedRole(role); setRoleModalOpen(false); go("auth"); }}/>} {contactModal.open && <ContactModal contact={contactModal.contact} onClose={() => setContactModal({ open: false })}/>} {selectedProject && <ProjectModal project={selectedProject} onClose={() => setSelectedProject(undefined)}/>} {selectedArticle && <ArticleModal article={selectedArticle} onClose={() => setSelectedArticle(undefined)}/>}</div>;
 }
