@@ -16,19 +16,31 @@ import {
   type Project,
 } from "./api.ts";
 
-type View = "home" | "projects" | "organizations" | "government" | "articles" | "auth" | "account";
+import {
+  InvestmentPage,
+  CompaniesPage,
+  GovernmentOpportunityPage,
+  IndustryMapPage,
+  ReportsPage,
+  InstitutionsPage,
+  EventsPage,
+  ServicesPage,
+} from "./sectionPages.tsx";
+
+type View = "home" | "projects" | "organizations" | "government" | "articles" | "investment" | "companies" | "industries" | "reports" | "institutions" | "events" | "services" | "auth" | "account";
 
 const navItems: Array<{ id: View; label: string }> = [
   { id: "home", label: "首页" },
-  { id: "projects", label: "投融资" },
-  { id: "organizations", label: "公司" },
+  { id: "investment", label: "投融资" },
+  { id: "companies", label: "公司" },
   { id: "government", label: "政府对接" },
-  { id: "projects", label: "行业图谱" },
-  { id: "articles", label: "研究报告" },
-  { id: "organizations", label: "创投机构" },
-  { id: "articles", label: "新闻事件" },
-  { id: "articles", label: "产品服务" },
+  { id: "industries", label: "行业图谱" },
+  { id: "reports", label: "研究报告" },
+  { id: "institutions", label: "创投机构" },
+  { id: "events", label: "新闻事件" },
+  { id: "services", label: "产品服务" },
 ];
+const knownViews = new Set<View>([...navItems.map((item) => item.id), "projects", "organizations", "articles", "auth", "account"]);
 
 const organizationType = { investor: "投资机构", fa: "FA 机构", government: "政府招商" } as const;
 
@@ -75,7 +87,7 @@ function OrganizationCard({ organization, favorite, onToggleFavorite }: { organi
   );
 }
 
-type SearchTarget = Exclude<View, "home" | "auth" | "account">;
+type SearchTarget = "projects" | "organizations" | "government" | "articles";
 type SearchMatch = { id: string; target: SearchTarget; title: string; meta: string };
 
 const searchTargetLabels: Record<SearchTarget, string> = {
@@ -626,7 +638,7 @@ export default function App() {
   const [recentViews, setRecentViews] = useState<RecentView[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProject, setSelectedProject] = useState<Project>(); const [selectedArticle, setSelectedArticle] = useState<Article>(); const [contactModal, setContactModal] = useState<{ open: boolean; contact?: GovernmentContact }>({ open: false }); const [roleModalOpen, setRoleModalOpen] = useState(false); const [selectedRole, setSelectedRole] = useState<RoleId>();
-  useEffect(() => { const onHash = () => { const next = window.location.hash.slice(1) as View; if (next === "auth" || next === "account" || navItems.some((item) => item.id === next)) setView(next); }; window.addEventListener("hashchange", onHash); return () => window.removeEventListener("hashchange", onHash); }, []);
+  useEffect(() => { const onHash = () => { const next = window.location.hash.slice(1) as View; if (knownViews.has(next)) setView(next); }; window.addEventListener("hashchange", onHash); return () => window.removeEventListener("hashchange", onHash); }, []);
   useEffect(() => { Promise.all([api.projects({ page: 1, pageSize: 50 }), api.organizations({ page: 1, pageSize: 50 }), api.contacts({ page: 1, pageSize: 50 }), api.articles({ page: 1, pageSize: 50 })]).then(([p, o, c, a]) => { setProjects(p.projects); setOrganizations(o.organizations); setContacts(c.contacts); setArticles(a.articles); }).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false)); }, []);
   useEffect(() => { if (!window.localStorage.getItem("venture_session")) return; api.favorites().then(({ favorites }) => setFavoriteKeys(new Set(favorites.map((favorite) => `${favorite.resourceType}:${favorite.resourceId}`)))).catch(() => undefined); }, []);
   useEffect(() => { if (!window.localStorage.getItem("venture_session")) return; api.recentViews().then(({ views }) => setRecentViews(views)).catch(() => undefined); }, [view]);
@@ -665,6 +677,14 @@ export default function App() {
   if (view === "organizations") content = <OrganizationsView organizations={organizations} initialQuery={searchQuery} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
   if (view === "government") content = <GovernmentView contacts={contacts} openContact={(contact) => setContactModal({ open: true, contact })} initialQuery={searchQuery}/>;
   if (view === "articles") content = <ArticlesView articles={articles} openArticle={openArticle} initialQuery={searchQuery} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
+  if (view === "investment") content = <InvestmentPage onBackHome={() => go("home")}/>;
+  if (view === "companies") content = <CompaniesPage onBackHome={() => go("home")}/>;
+  if (view === "government") content = <GovernmentOpportunityPage onBackHome={() => go("home")}/>;
+  if (view === "industries") content = <IndustryMapPage onBackHome={() => go("home")}/>;
+  if (view === "reports") content = <ReportsPage onBackHome={() => go("home")}/>;
+  if (view === "institutions") content = <InstitutionsPage onBackHome={() => go("home")}/>;
+  if (view === "events") content = <EventsPage onBackHome={() => go("home")}/>;
+  if (view === "services") content = <ServicesPage onBackHome={() => go("home")}/>;
   if (view === "auth") content = <AuthView initialRole={selectedRole} go={go}/>;
   if (view === "account") content = <><AccountView go={go}/><NotificationsStrip/><AccountProfileStrip/><EmailVerificationStrip/><AccountSecurityStrip/><MyProjectsStrip/><MyBpRequestsStrip/><IncomingBpRequestsStrip/><MyContactRequestsStrip/><RecentViewsStrip views={recentViews} projects={projects} articles={articles} go={go}/></>;
   return <div className={`site-shell view-${view}`}><header className="site-header"><div className="header-inner"><button className="brand" onClick={() => go("home")}><span>V</span><div><b>创投智联</b><small>VENTURE LINK</small></div></button><button className="menu-button" aria-label="打开导航" onClick={() => setMenuOpen(!menuOpen)}><i/><i/><i/></button><nav className={menuOpen ? "open" : ""}>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => go(item.id)}>{item.label}</button>)}</nav><GlobalSearch projects={projects} organizations={organizations} contacts={contacts} articles={articles} onSearch={handleSearch}/><button className="header-cta" onClick={() => setRoleModalOpen(true)}>选择身份</button></div></header>{loading ? <div className="loading">正在连接创投资源…</div> : error ? <div className="loading error">载入失败：{error}</div> : content}<footer><div className="section-wrap footer-grid"><div><div className="footer-brand"><span>V</span><b>创投智联</b></div><p>连接项目、资本与政府产业资源。</p></div><div><b>平台导航</b><button onClick={() => go("projects")}>项目库</button><button onClick={() => go("organizations")}>机构库</button><button onClick={() => go("government")}>政府对接</button></div><div><b>安全原则</b><span>主体认证</span><span>最小权限</span><span>访问留痕</span></div><div><b>当前版本</b><span>试点 MVP</span><span>线下登记与对接</span><span>正式上线需备案域名</span></div></div><div className="footer-bottom">© 2026 创投智联 · 本平台信息仅供交流，不构成投资建议</div></footer>{roleModalOpen && <RoleSelectionModal onClose={() => setRoleModalOpen(false)} onSelect={(role) => { setSelectedRole(role); setRoleModalOpen(false); go("auth"); }}/>} {contactModal.open && <ContactModal contact={contactModal.contact} onClose={() => setContactModal({ open: false })}/>} {selectedProject && <ProjectModal project={selectedProject} onClose={() => setSelectedProject(undefined)}/>} {selectedArticle && <ArticleModal article={selectedArticle} onClose={() => setSelectedArticle(undefined)}/>}</div>;
