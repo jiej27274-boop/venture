@@ -119,8 +119,7 @@ export const api = {
   articles: (params: Pick<ListParams, "q" | "category" | "page" | "pageSize"> = {}) => request<{ articles: Article[]; pagination: Pagination }>(`/api/articles${queryString(params)}`),
   article: (slug: string) => request<{ article: Article }>(`/api/articles/${encodeURIComponent(slug)}`),
   authConfig: () => request<{ emailRequired: boolean; captchaEnabled: boolean; emailVerificationEnabled: boolean; passwordResetEnabled: boolean; otpEnabled: boolean }>("/api/auth/config"),
-  captcha: () => request<{ captchaId: string; image: string; expiresAt: string }>("/api/auth/captcha"),
-  register: (input: { email?: string; phone?: string; password: string; confirmPassword: string; role: AuthRole; organizationName?: string; contactName?: string; userName?: string; captchaId: string; captchaCode: string; supabaseAccessToken?: string }) => request<{ account: { userId: string; organizationId: string; role: AuthRole; status: "pending" | "active" } }>("/api/auth/register", {
+  register: (input: { email?: string; phone?: string; password: string; confirmPassword: string; role: AuthRole; organizationName?: string; contactName?: string; userName?: string; emailVerificationToken?: string; emailVerificationCode?: string }) => request<{ account: { userId: string; organizationId: string; role: AuthRole; status: "pending" | "active" } }>("/api/auth/register", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
@@ -130,8 +129,8 @@ export const api = {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   }),
-  requestOtp: (input: { email: string; purpose: "register" | "login" | "recovery" }) => request<{ status: "sent"; expiresIn: number; resendAfter: number }>("/api/auth/otp/request", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
-  verifyOtp: (input: { email: string; token: string; purpose: "register" | "login" | "recovery" }) => request<{ status: "verified" | "authenticated"; email?: string; supabaseUserId?: string; supabaseAccessToken?: string | null; session?: string; actor?: AuthActor }>("/api/auth/otp/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
+  requestOtp: (input: { email: string; purpose: "register" | "login" | "recovery" }) => request<{ status: "sent"; expiresIn: number; resendAfter: number; previewToken?: string }>("/api/auth/otp/request", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
+  verifyOtp: (input: { email: string; token: string; purpose: "register" | "login" | "recovery" }) => request<{ status: "verified" | "authenticated"; email?: string; emailVerificationToken?: string; session?: string; actor?: AuthActor }>("/api/auth/otp/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
   changePassword: (input: { currentPassword: string; newPassword: string; confirmPassword: string }) => request<{ status: "updated" }>("/api/auth/password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
   updateProfile: (input: { displayName: string; email?: string; phone?: string }) => request<{ profile: { displayName: string; email: string | null; phone: string | null } }>("/api/auth/profile", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
   requestEmailVerification: () => request<{ status: string; expiresAt?: string; previewToken?: string }>("/api/auth/email-verification/request", { method: "POST" }),

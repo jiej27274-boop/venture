@@ -10,15 +10,17 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 5174",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "migrate:supabase": "node scripts/migrate-sqlite-to-supabase.mjs",
+    "mysql:init": "node scripts/init-mysql.mjs",
+    "migrate:mysql": "node scripts/migrate-sqlite-to-mysql.mjs",
     "preflight": "node scripts/preflight.mjs",
     "test:domain": "pnpm --filter @venture/domain test"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.112.0",
     "@venture/domain": "workspace:*",
     "hono": "^4.7.0",
+    "mysql2": "^3.14.3",
     "next": "^15.5.9",
+    "nodemailer": "^7.0.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zod": "^3.24.0"
@@ -27,6 +29,7 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@types/node": "^24.0.0",
+    "@types/nodemailer": "^7.0.1",
     "typescript": "^5.8.0",
     "tsx": "^4.20.0",
     "vitest": "^3.2.0"

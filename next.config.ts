@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   transpilePackages: ["@venture/domain"],
-  serverExternalPackages: ["node:sqlite"],
+  serverExternalPackages: ["mysql2", "nodemailer"],
   poweredByHeader: false,
   async headers() {
     return [
