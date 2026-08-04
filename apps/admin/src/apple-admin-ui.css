@@ -639,3 +639,44 @@ main {
     transition-duration: .01ms !important;
   }
 }
+
+/* Identity review queue: content-first rows keep the admin page readable
+   when summaries and reviewer notes become longer than a table cell. */
+.identity-review-panel { padding-bottom: 25px; }
+.identity-review-toolbar { display: grid; grid-template-columns: minmax(220px, 1.6fr) minmax(145px, .75fr) minmax(145px, .75fr); gap: 10px; margin: 21px 0 4px; }
+.identity-review-toolbar input,.identity-review-toolbar select { min-height: 39px; padding: 0 12px; border: 1px solid #d8e3ef; border-radius: 11px; outline: 0; color: #31516f; background: #f7f9fc; font: inherit; font-size: 12px; }
+.identity-review-toolbar input:focus,.identity-review-toolbar select:focus { border-color: #8fbbed; box-shadow: 0 0 0 3px rgba(36, 116, 215, .1); }
+.identity-review-list { display: grid; gap: 11px; margin-top: 17px; }
+.identity-review-card { position: relative; display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; gap: 16px; padding: 18px 0; border-top: 1px solid #edf2f7; }
+.identity-review-card-top { display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
+.identity-type-mark { padding: 7px 9px; border-radius: 8px; color: #3974b0; background: #edf5ff; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.identity-review-card-main { min-width: 0; }
+.identity-review-org { display: flex; align-items: baseline; flex-wrap: wrap; gap: 9px; }
+.identity-review-org b { color: #294866; font-size: 11px; }
+.identity-review-org span { color: #9aaabd; font-size: 9px; }
+.identity-review-card h3 { margin: 7px 0 6px; color: #243f5b; font-size: 16px; letter-spacing: -.2px; }
+.identity-review-card-main > p { max-width: 720px; margin: 0; color: #71869b; font-size: 11px; line-height: 1.7; }
+.identity-review-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.identity-review-meta span { padding: 5px 8px; border-radius: 7px; color: #657b91; background: #f0f4f8; font-size: 9px; }
+.identity-review-detail,.identity-review-reason { display: block; margin-top: 8px; color: #7f93a7; font-size: 10px; line-height: 1.6; }
+.identity-review-reason { color: #b8655d; }
+.identity-review-actions { display: flex; align-items: flex-start; gap: 7px; padding-top: 22px; white-space: nowrap; }
+.identity-review-actions .primary-button,.identity-review-actions .secondary-button { padding: 8px 11px; font-size: 10px; }
+.identity-reject-form { grid-column: 2 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: end; padding: 13px; border: 1px solid #f0d9d4; border-radius: 11px; background: #fff9f8; }
+.identity-reject-form label { color: #9b6e67; font-size: 10px; font-weight: 700; }
+.identity-reject-form input { width: 100%; margin-top: 6px; min-height: 35px; padding: 0 10px; border: 1px solid #e7cbc6; border-radius: 8px; outline: 0; color: #6b4b48; background: #fff; font: inherit; font-size: 11px; }
+.identity-reject-form .primary-button,.identity-reject-form .secondary-button { min-height: 35px; padding: 7px 10px; font-size: 10px; }
+
+@media (max-width: 900px) {
+  .identity-review-card { grid-template-columns: 96px minmax(0, 1fr); }
+  .identity-review-actions { grid-column: 2; padding-top: 4px; }
+  .identity-reject-form { grid-column: 1 / -1; }
+}
+@media (max-width: 620px) {
+  .identity-review-toolbar { grid-template-columns: 1fr; }
+  .identity-review-card { grid-template-columns: 1fr; gap: 10px; }
+  .identity-review-card-top { flex-direction: row; align-items: center; justify-content: space-between; }
+  .identity-review-actions { grid-column: auto; padding-top: 0; }
+  .identity-reject-form { grid-template-columns: 1fr 1fr; }
+  .identity-reject-form label { grid-column: 1 / -1; }
+}

@@ -590,6 +590,66 @@ describe("project submission flow", () => {
   });
 });
 
+describe("identity publishing flow", () => {
+  it("routes identity content through review and supports a rejected resubmission", async () => {
+    const app = createApp({ database });
+    const created = await app.request("/api/identity-submissions", {
+      method: "POST",
+      headers: headers("user-investor", "org-investor"),
+      body: JSON.stringify({
+        type: "investor_thesis",
+        title: "关注先进制造和工业软件的早期方向",
+        summary: "面向已有客户验证的先进制造与工业软件团队，提供早期资金和产业资源支持。",
+        industry: "先进制造",
+        region: "上海",
+        stage: "天使至 A 轮",
+        financingRange: "500 万至 3000 万",
+        details: { primary: "关注真实交付和产业客户复购。" },
+      }),
+    });
+    expect(created.status).toBe(201);
+    const submission = (await created.json()).submission;
+    expect(submission).toMatchObject({ type: "investor_thesis", status: "pending", version: 1 });
+
+    const pending = await app.request("/api/admin/identity-submissions?status=pending", { headers: headers("user-admin", "org-platform") });
+    expect(pending.status).toBe(200);
+    expect((await pending.json()).submissions).toEqual(expect.arrayContaining([expect.objectContaining({ id: submission.id, ownerOrganizationName: "远景创投" })]));
+
+    const rejected = await app.request(`/api/admin/identity-submissions/${submission.id}/decision`, {
+      method: "POST",
+      headers: headers("user-admin", "org-platform"),
+      body: JSON.stringify({ status: "rejected", reason: "请补充可公开验证的客户交付信息。" }),
+    });
+    expect(rejected.status).toBe(200);
+    expect((await rejected.json()).submission).toMatchObject({ status: "rejected", rejectionReason: "请补充可公开验证的客户交付信息。", version: 1 });
+
+    const resubmitted = await app.request(`/api/identity-submissions/${submission.id}`, {
+      method: "PATCH",
+      headers: headers("user-investor", "org-investor"),
+      body: JSON.stringify({
+        title: "关注先进制造和工业软件的早期方向",
+        summary: "面向已有客户验证的先进制造与工业软件团队，提供早期资金和产业资源支持，并关注交付复购。",
+        industry: "先进制造",
+        region: "上海",
+        stage: "天使至 A 轮",
+        financingRange: "500 万至 3000 万",
+        details: { primary: "已补充客户交付与复购验证。" },
+        status: "pending",
+      }),
+    });
+    expect(resubmitted.status).toBe(200);
+    expect((await resubmitted.json()).submission).toMatchObject({ status: "pending", version: 2 });
+
+    const approved = await app.request(`/api/admin/identity-submissions/${submission.id}/decision`, {
+      method: "POST",
+      headers: headers("user-admin", "org-platform"),
+      body: JSON.stringify({ status: "approved" }),
+    });
+    expect(approved.status).toBe(200);
+    expect((await approved.json()).submission).toMatchObject({ status: "approved", version: 2 });
+  });
+});
+
 describe("matching and favorites", () => {
   it("tracks contact follow-ups and keeps favorites private per user", async () => {
     const app = createApp({ database });

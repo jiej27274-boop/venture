@@ -19,6 +19,7 @@ export interface Overview {
   organizations: number;
   verifiedOrganizations: number;
   projects: number;
+  identitySubmissions: number;
   governmentContacts: number;
   pendingReviews: number;
   bpRequests: number;
@@ -31,6 +32,28 @@ export interface Overview {
     meetings: number;
     progressing: number;
   };
+}
+
+export type IdentitySubmissionType = "investor_thesis" | "fa_recommendation" | "government_demand";
+export type IdentitySubmissionStatus = "draft" | "pending" | "approved" | "rejected" | "archived";
+export interface IdentitySubmission {
+  id: string;
+  type: IdentitySubmissionType;
+  ownerOrganizationName: string;
+  title: string;
+  summary: string;
+  industry: string;
+  region: string;
+  stage: string | null;
+  financingRange: string | null;
+  details: Record<string, string>;
+  status: IdentitySubmissionStatus;
+  version: number;
+  rejectionReason: string | null;
+  submittedAt: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProjectSummary {
@@ -119,6 +142,8 @@ export const api = {
   overview: () => request<Overview>("/api/admin/overview"),
   projects: () => request<{ projects: ProjectSummary[] }>("/api/admin/project-submissions"),
   updateProjectStatus: (id: string, status: "approved" | "rejected") => request<{ project: ProjectSummary }>(`/api/admin/project-submissions/${encodeURIComponent(id)}/decision`, { method: "POST", body: JSON.stringify({ status }) }),
+  identitySubmissions: (params: { type?: IdentitySubmissionType; status?: IdentitySubmissionStatus; q?: string } = {}) => { const query = new URLSearchParams(); Object.entries(params).forEach(([key, value]) => { if (value) query.set(key, String(value)); }); return request<{ submissions: IdentitySubmission[] }>(`/api/admin/identity-submissions${query.toString() ? `?${query}` : ""}`); },
+  updateIdentitySubmissionStatus: (id: string, status: "approved" | "rejected" | "archived", reason?: string) => request<{ submission: IdentitySubmission }>(`/api/admin/identity-submissions/${encodeURIComponent(id)}/decision`, { method: "POST", body: JSON.stringify({ status, reason }) }),
   governmentContacts: () => request<{ contacts: GovernmentContact[] }>("/api/government-contacts"),
   contactRequests: () => request<{ requests: ContactRequest[] }>("/api/admin/contact-requests"),
   updateContactRequest: (id: string, input: { status: ContactRequest["status"]; note: string }) => request<{ update: ContactRequestUpdate }>(`/api/admin/contact-requests/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) }),

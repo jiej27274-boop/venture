@@ -95,6 +95,7 @@ export interface AuthAccountRecord {
   userId: string;
   email: string | null;
   phone: string | null;
+  supabaseUserId: string | null;
   passwordHash: string;
   role: OrganizationType;
   status: "pending" | "active" | "rejected" | "suspended";
@@ -136,6 +137,31 @@ export interface BpAccessRequestRecord {
   createdAt: string;
 }
 
+export type IdentitySubmissionType = "investor_thesis" | "fa_recommendation" | "government_demand";
+export type IdentitySubmissionStatus = "draft" | "pending" | "approved" | "rejected" | "archived";
+
+export interface IdentitySubmissionRecord {
+  id: string;
+  type: IdentitySubmissionType;
+  ownerUserId: string;
+  ownerOrganizationId: string;
+  ownerOrganizationName: string;
+  title: string;
+  summary: string;
+  industry: string;
+  region: string;
+  stage: string | null;
+  financingRange: string | null;
+  details: Record<string, string>;
+  status: IdentitySubmissionStatus;
+  version: number;
+  rejectionReason: string | null;
+  submittedAt: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 function createSchema(database: VentureDatabase) {
   database.exec(`
     PRAGMA foreign_keys = ON;
@@ -153,6 +179,7 @@ function createSchema(database: VentureDatabase) {
       user_id TEXT PRIMARY KEY,
       email TEXT UNIQUE,
       phone TEXT UNIQUE,
+      supabase_user_id TEXT UNIQUE,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -350,6 +377,49 @@ function createSchema(database: VentureDatabase) {
       updated_at TEXT NOT NULL,
       published_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS identity_submissions (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL,
+      owner_organization_id TEXT NOT NULL,
+      identity_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      industry TEXT NOT NULL,
+      region TEXT NOT NULL,
+      stage TEXT,
+      financing_range TEXT,
+      detail_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'draft',
+      current_version INTEGER NOT NULL DEFAULT 1,
+      rejection_reason TEXT,
+      submitted_at TEXT,
+      published_at TEXT,
+      archived_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (owner_user_id) REFERENCES users(id),
+      FOREIGN KEY (owner_organization_id) REFERENCES organizations(id)
+    );
+    CREATE TABLE IF NOT EXISTS identity_submission_revisions (
+      id TEXT PRIMARY KEY,
+      submission_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      payload_json TEXT NOT NULL,
+      status TEXT NOT NULL,
+      rejection_reason TEXT,
+      created_by_user_id TEXT NOT NULL,
+      reviewed_by_user_id TEXT,
+      created_at TEXT NOT NULL,
+      reviewed_at TEXT,
+      UNIQUE (submission_id, version),
+      FOREIGN KEY (submission_id) REFERENCES identity_submissions(id),
+      FOREIGN KEY (created_by_user_id) REFERENCES users(id),
+      FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS identity_submissions_owner_idx ON identity_submissions (owner_organization_id, owner_user_id);
+    CREATE INDEX IF NOT EXISTS identity_submissions_review_idx ON identity_submissions (status, identity_type, created_at);
+    CREATE INDEX IF NOT EXISTS identity_submission_revisions_submission_idx ON identity_submission_revisions (submission_id, version);
+    CREATE UNIQUE INDEX IF NOT EXISTS auth_accounts_supabase_user_idx ON auth_accounts (supabase_user_id);
   `);
 
   const projectColumns = database.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
@@ -367,6 +437,10 @@ function createSchema(database: VentureDatabase) {
     database.exec("ALTER TABLE contact_requests ADD COLUMN requester_user_id TEXT");
   }
   const authColumns = database.prepare("PRAGMA table_info(auth_accounts)").all() as Array<{ name: string }>;
+  if (!authColumns.some((column) => column.name === "supabase_user_id")) {
+    database.exec("ALTER TABLE auth_accounts ADD COLUMN supabase_user_id TEXT");
+    database.exec("CREATE UNIQUE INDEX IF NOT EXISTS auth_accounts_supabase_user_idx ON auth_accounts (supabase_user_id)");
+  }
   if (!authColumns.some((column) => column.name === "email_verified_at")) {
     database.exec("ALTER TABLE auth_accounts ADD COLUMN email_verified_at TEXT");
   }
@@ -537,6 +611,7 @@ export function createAuthAccount(
     requesterUserId?: string;
     email?: string;
     phone?: string;
+    supabaseUserId?: string;
     passwordHash: string;
     role: OrganizationType;
     organizationName: string;
@@ -558,7 +633,7 @@ export function createAuthAccount(
     database.prepare("INSERT INTO organizations (id, name, type, verified) VALUES (?, ?, ?, 0)").run(organizationId, input.organizationName.trim(), input.role);
     database.prepare("INSERT INTO users (id, name) VALUES (?, ?)").run(userId, input.contactName.trim());
     database.prepare("INSERT INTO memberships (user_id, organization_id, roles_json) VALUES (?, ?, ?)").run(userId, organizationId, JSON.stringify(roles));
-    database.prepare("INSERT INTO auth_accounts (user_id, email, phone, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(userId, email, phone, input.passwordHash, input.role, status, createdAt);
+    database.prepare("INSERT INTO auth_accounts (user_id, email, phone, supabase_user_id, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(userId, email, phone, input.supabaseUserId ?? null, input.passwordHash, input.role, status, createdAt);
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");
@@ -570,7 +645,7 @@ export function createAuthAccount(
 export function findAuthAccount(database: VentureDatabase, identifier: string) {
   const normalized = identifier.trim().toLowerCase();
   const row = database.prepare(`
-    SELECT a.user_id AS userId, a.email, a.phone, a.password_hash AS passwordHash,
+    SELECT a.user_id AS userId, a.email, a.phone, a.supabase_user_id AS supabaseUserId, a.password_hash AS passwordHash,
            a.role, a.status, a.created_at AS createdAt, a.email_verified_at AS emailVerifiedAt,
            m.organization_id AS organizationId
     FROM auth_accounts a JOIN memberships m ON m.user_id = a.user_id
@@ -582,13 +657,29 @@ export function findAuthAccount(database: VentureDatabase, identifier: string) {
 
 export function getAuthAccountByUserId(database: VentureDatabase, userId: string) {
   const row = database.prepare(`
-    SELECT a.user_id AS userId, a.email, a.phone, a.password_hash AS passwordHash,
+    SELECT a.user_id AS userId, a.email, a.phone, a.supabase_user_id AS supabaseUserId, a.password_hash AS passwordHash,
            a.role, a.status, a.created_at AS createdAt, a.email_verified_at AS emailVerifiedAt,
            m.organization_id AS organizationId
     FROM auth_accounts a JOIN memberships m ON m.user_id = a.user_id
     WHERE a.user_id = ? LIMIT 1
   `).get(userId) as AuthAccountRecord | undefined;
   return row ?? null;
+}
+
+export function getAuthAccountBySupabaseUserId(database: VentureDatabase, supabaseUserId: string) {
+  const row = database.prepare(`
+    SELECT a.user_id AS userId, a.email, a.phone, a.supabase_user_id AS supabaseUserId, a.password_hash AS passwordHash,
+           a.role, a.status, a.created_at AS createdAt, a.email_verified_at AS emailVerifiedAt,
+           m.organization_id AS organizationId
+    FROM auth_accounts a JOIN memberships m ON m.user_id = a.user_id
+    WHERE a.supabase_user_id = ? LIMIT 1
+  `).get(supabaseUserId) as AuthAccountRecord | undefined;
+  return row ?? null;
+}
+
+export function linkSupabaseUser(database: VentureDatabase, userId: string, supabaseUserId: string) {
+  const result = database.prepare("UPDATE auth_accounts SET supabase_user_id = ?, email_verified_at = COALESCE(email_verified_at, ?) WHERE user_id = ? AND supabase_user_id IS NULL").run(supabaseUserId, new Date().toISOString(), userId);
+  return result.changes > 0;
 }
 
 export function updateAuthPassword(database: VentureDatabase, userId: string, passwordHash: string) {
@@ -850,6 +941,209 @@ export function listProjectsForOrganization(database: VentureDatabase, organizat
            (SELECT file_name FROM bp_files WHERE project_id = p.id ORDER BY version DESC LIMIT 1) AS bpFileName
     FROM projects p WHERE p.owner_organization_id = ? ORDER BY p.rowid DESC
   `).all(organizationId).map((row) => ({ ...(row as Record<string, unknown>), published: Boolean((row as { published: number }).published) }));
+}
+
+function parseIdentityDetails(value: string | null | undefined): Record<string, string> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, item]) => typeof item === "string")) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function toIdentitySubmission(row: Record<string, unknown>): IdentitySubmissionRecord {
+  return {
+    id: String(row.id),
+    type: row.type as IdentitySubmissionType,
+    ownerUserId: String(row.ownerUserId),
+    ownerOrganizationId: String(row.ownerOrganizationId),
+    ownerOrganizationName: String(row.ownerOrganizationName),
+    title: String(row.title),
+    summary: String(row.summary),
+    industry: String(row.industry),
+    region: String(row.region),
+    stage: row.stage ? String(row.stage) : null,
+    financingRange: row.financingRange ? String(row.financingRange) : null,
+    details: parseIdentityDetails(row.detailJson as string | null | undefined),
+    status: row.status as IdentitySubmissionStatus,
+    version: Number(row.version),
+    rejectionReason: row.rejectionReason ? String(row.rejectionReason) : null,
+    submittedAt: row.submittedAt ? String(row.submittedAt) : null,
+    publishedAt: row.publishedAt ? String(row.publishedAt) : null,
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+type SqlParam = string | number | null | Uint8Array;
+
+function identitySubmissionQuery(database: VentureDatabase, where = "", params: SqlParam[] = []) {
+  const rows = database.prepare(`
+    SELECT s.id, s.identity_type AS type, s.owner_user_id AS ownerUserId,
+           s.owner_organization_id AS ownerOrganizationId, o.name AS ownerOrganizationName,
+           s.title, s.summary, s.industry, s.region, s.stage,
+           s.financing_range AS financingRange, s.detail_json AS detailJson,
+           s.status, s.current_version AS version, s.rejection_reason AS rejectionReason,
+           s.submitted_at AS submittedAt, s.published_at AS publishedAt,
+           s.created_at AS createdAt, s.updated_at AS updatedAt
+    FROM identity_submissions s
+    JOIN organizations o ON o.id = s.owner_organization_id
+    ${where}
+    ORDER BY CASE s.status WHEN 'pending' THEN 0 WHEN 'rejected' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END, s.updated_at DESC
+  `).all(...params) as Array<Record<string, unknown>>;
+  return rows.map(toIdentitySubmission);
+}
+
+export function createIdentitySubmission(
+  database: VentureDatabase,
+  input: {
+    ownerUserId: string;
+    ownerOrganizationId: string;
+    type: IdentitySubmissionType;
+    title: string;
+    summary: string;
+    industry: string;
+    region: string;
+    stage?: string;
+    financingRange?: string;
+    details?: Record<string, string>;
+    status?: Extract<IdentitySubmissionStatus, "draft" | "pending">;
+  },
+) {
+  const id = `identity-${randomUUID()}`;
+  const now = new Date().toISOString();
+  const status = input.status ?? "pending";
+  const submittedAt = status === "pending" ? now : null;
+  const payload = JSON.stringify({
+    type: input.type,
+    title: input.title.trim(),
+    summary: input.summary.trim(),
+    industry: input.industry.trim(),
+    region: input.region.trim(),
+    stage: input.stage?.trim() || "",
+    financingRange: input.financingRange?.trim() || "",
+    details: input.details ?? {},
+  });
+  database.exec("BEGIN");
+  try {
+    database.prepare(`
+      INSERT INTO identity_submissions
+        (id, owner_user_id, owner_organization_id, identity_type, title, summary, industry, region, stage, financing_range, detail_json, status, current_version, submitted_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+    `).run(id, input.ownerUserId, input.ownerOrganizationId, input.type, input.title.trim(), input.summary.trim(), input.industry.trim(), input.region.trim(), input.stage?.trim() || null, input.financingRange?.trim() || null, JSON.stringify(input.details ?? {}), status, submittedAt, now, now);
+    database.prepare(`
+      INSERT INTO identity_submission_revisions
+        (id, submission_id, version, payload_json, status, created_by_user_id, created_at)
+      VALUES (?, ?, 1, ?, ?, ?, ?)
+    `).run(`identity-revision-${randomUUID()}`, id, payload, status, input.ownerUserId, now);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+  return getIdentitySubmission(database, id);
+}
+
+export function updateIdentitySubmissionContent(
+  database: VentureDatabase,
+  submissionId: string,
+  ownerUserId: string,
+  input: {
+    title: string;
+    summary: string;
+    industry: string;
+    region: string;
+    stage?: string;
+    financingRange?: string;
+    details?: Record<string, string>;
+    status?: Extract<IdentitySubmissionStatus, "draft" | "pending">;
+  },
+) {
+  const current = getIdentitySubmission(database, submissionId);
+  if (!current || current.ownerUserId !== ownerUserId || !["draft", "rejected"].includes(current.status)) return null;
+  const now = new Date().toISOString();
+  const status = input.status ?? "pending";
+  const payload = JSON.stringify({
+    type: current.type,
+    title: input.title.trim(),
+    summary: input.summary.trim(),
+    industry: input.industry.trim(),
+    region: input.region.trim(),
+    stage: input.stage?.trim() || "",
+    financingRange: input.financingRange?.trim() || "",
+    details: input.details ?? {},
+  });
+  const version = current.version + 1;
+  database.exec("BEGIN");
+  try {
+    database.prepare(`
+      UPDATE identity_submissions
+      SET title = ?, summary = ?, industry = ?, region = ?, stage = ?, financing_range = ?, detail_json = ?, status = ?, current_version = ?, rejection_reason = NULL, submitted_at = ?, updated_at = ?
+      WHERE id = ? AND owner_user_id = ?
+    `).run(input.title.trim(), input.summary.trim(), input.industry.trim(), input.region.trim(), input.stage?.trim() || null, input.financingRange?.trim() || null, JSON.stringify(input.details ?? {}), status, version, status === "pending" ? now : null, now, submissionId, ownerUserId);
+    database.prepare(`
+      INSERT INTO identity_submission_revisions
+        (id, submission_id, version, payload_json, status, created_by_user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(`identity-revision-${randomUUID()}`, submissionId, version, payload, status, ownerUserId, now);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+  return getIdentitySubmission(database, submissionId);
+}
+
+export function getIdentitySubmission(database: VentureDatabase, submissionId: string) {
+  return identitySubmissionQuery(database, "WHERE s.id = ?", [submissionId])[0] ?? null;
+}
+
+export function listIdentitySubmissionsForUser(database: VentureDatabase, userId: string) {
+  return identitySubmissionQuery(database, "WHERE s.owner_user_id = ?", [userId]);
+}
+
+export function listIdentitySubmissionsForAdmin(
+  database: VentureDatabase,
+  filters: { type?: IdentitySubmissionType; status?: IdentitySubmissionStatus; q?: string } = {},
+) {
+  const where: string[] = [];
+  const params: SqlParam[] = [];
+  if (filters.type) { where.push("s.identity_type = ?"); params.push(filters.type); }
+  if (filters.status) { where.push("s.status = ?"); params.push(filters.status); }
+  if (filters.q?.trim()) {
+    where.push("LOWER(s.title || ' ' || s.summary || ' ' || s.industry || ' ' || s.region || ' ' || o.name) LIKE ?");
+    params.push(`%${filters.q.trim().toLowerCase()}%`);
+  }
+  return identitySubmissionQuery(database, where.length ? `WHERE ${where.join(" AND ")}` : "", params);
+}
+
+export function updateIdentitySubmissionStatus(
+  database: VentureDatabase,
+  submissionId: string,
+  status: Extract<IdentitySubmissionStatus, "approved" | "rejected" | "archived">,
+  reviewerUserId: string,
+  reason?: string,
+) {
+  const current = getIdentitySubmission(database, submissionId);
+  if (!current) return null;
+  const now = new Date().toISOString();
+  database.exec("BEGIN");
+  try {
+    database.prepare(`UPDATE identity_submissions SET status = ?, rejection_reason = ?, published_at = CASE WHEN ? = 'approved' THEN COALESCE(published_at, ?) ELSE published_at END, archived_at = CASE WHEN ? = 'archived' THEN ? ELSE archived_at END, updated_at = ? WHERE id = ?`).run(status, status === "rejected" ? (reason?.trim() || "请补充完整信息后重新提交") : null, status, now, status, now, now, submissionId);
+    database.prepare(`UPDATE identity_submission_revisions SET status = ?, rejection_reason = ?, reviewed_by_user_id = ?, reviewed_at = ? WHERE submission_id = ? AND version = ?`).run(status, status === "rejected" ? (reason?.trim() || "请补充完整信息后重新提交") : null, reviewerUserId, now, submissionId, current.version);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+  return getIdentitySubmission(database, submissionId);
+}
+
+export function countPendingIdentitySubmissions(database: VentureDatabase) {
+  return (database.prepare("SELECT COUNT(*) AS count FROM identity_submissions WHERE status = 'pending'").get() as { count: number }).count;
 }
 
 export function updateProjectReviewStatus(database: VentureDatabase, projectId: string, status: "approved" | "rejected") {
@@ -1415,8 +1709,9 @@ export function getAdminOverview(database: VentureDatabase) {
     organizations: count("organizations"),
     verifiedOrganizations: count("organizations", "WHERE verified = 1"),
     projects: count("projects"),
+    identitySubmissions: count("identity_submissions"),
     governmentContacts: count("government_contacts"),
-    pendingReviews: count("review_tasks", "WHERE status = 'pending'"),
+    pendingReviews: count("review_tasks", "WHERE status = 'pending'") + countPendingIdentitySubmissions(database),
     bpRequests: count("bp_access_requests"),
     bpGrants: count("bp_grants"),
     contactRequests: count("contact_requests"),

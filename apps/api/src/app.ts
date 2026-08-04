@@ -47,6 +47,13 @@ import {
   listPublishedArticles,
   listProjectSubmissions,
   listProjectsForOrganization,
+  listIdentitySubmissionsForAdmin,
+  listIdentitySubmissionsForUser,
+  createIdentitySubmission,
+  updateIdentitySubmissionContent,
+  updateIdentitySubmissionStatus,
+  countPendingIdentitySubmissions,
+  getIdentitySubmission,
   listPublicOrganizations,
   resolveActor,
   updateProjectReviewStatus,
@@ -54,13 +61,16 @@ import {
   removeFavorite,
   recordRecentView,
   type FavoriteResourceType,
+  type IdentitySubmissionStatus,
+  type IdentitySubmissionType,
   updateArticle,
   writeAuditLog,
   type VentureDatabase,
 } from "./database.ts";
 import { createCaptchaChallenge, createSession, hashPassword, readSession, revokeSession, verifyCaptchaChallenge, verifyPassword } from "./auth.ts";
 import { deliverEmail, emailDeliveryStatus } from "./email.ts";
-import { approveAuthAccount, consumeAuthToken, createAuthAccount, findAuthAccount, getAuthAccountByUserId, issueAuthToken, listAuthAccounts, markEmailVerified, updateAuthAccountStatus, updateAuthPassword, updateAuthProfile } from "./database.ts";
+import { approveAuthAccount, consumeAuthToken, createAuthAccount, findAuthAccount, getAuthAccountBySupabaseUserId, getAuthAccountByUserId, issueAuthToken, linkSupabaseUser, listAuthAccounts, markEmailVerified, updateAuthAccountStatus, updateAuthPassword, updateAuthProfile } from "./database.ts";
+import { getSupabaseAuthClient, getSupabaseUser, supabaseRuntimeStatus } from "./supabase.ts";
 
 const requestSchema = z.object({
   purpose: z.string().trim().min(10).max(500),
@@ -116,6 +126,32 @@ const projectSubmissionSchema = z.object({
   anonymousName: z.string().trim().max(100).optional(),
 }).refine((value) => value.identityMode !== "anonymous" || Boolean(value.anonymousName), { message: "anonymous_name_required", path: ["anonymousName"] });
 
+const identitySubmissionSchema = z.object({
+  type: z.enum(["investor_thesis", "fa_recommendation", "government_demand"]),
+  title: z.string().trim().min(4).max(120),
+  summary: z.string().trim().min(20).max(1200),
+  industry: z.string().trim().min(2).max(80),
+  region: z.string().trim().min(2).max(80),
+  stage: z.string().trim().max(50).optional(),
+  financingRange: z.string().trim().max(80).optional(),
+  details: z.record(z.string().trim().max(500)).default({}),
+  status: z.enum(["draft", "pending"]).default("pending"),
+});
+const identityDecisionSchema = z.object({
+  status: z.enum(["approved", "rejected", "archived"]),
+  reason: z.string().trim().max(1000).optional(),
+});
+const identitySubmissionUpdateSchema = z.object({
+  title: z.string().trim().min(4).max(120),
+  summary: z.string().trim().min(20).max(1200),
+  industry: z.string().trim().min(2).max(80),
+  region: z.string().trim().min(2).max(80),
+  stage: z.string().trim().max(50).optional(),
+  financingRange: z.string().trim().max(80).optional(),
+  details: z.record(z.string().trim().max(500)).default({}),
+  status: z.enum(["draft", "pending"]).default("pending"),
+});
+
 const authRoleSchema = z.enum(["project", "investor", "fa", "government", "user"]);
 const registerSchema = z.object({
   email: z.string().trim().email().optional(),
@@ -128,12 +164,15 @@ const registerSchema = z.object({
   userName: z.string().trim().min(2).max(30).optional(),
   captchaId: z.string().trim().min(10),
   captchaCode: z.string().trim().length(5),
+  supabaseAccessToken: z.string().trim().min(20).optional(),
 }).refine((value) => Boolean(value.email || value.phone), { message: "email_or_phone_required" })
   .refine((value) => value.role === "user" || Boolean(value.organizationName), { message: "organization_name_required", path: ["organizationName"] })
   .refine((value) => Boolean(value.contactName || value.userName), { message: "user_name_required", path: ["userName"] })
   .refine((value) => process.env.AUTH_EMAIL_REQUIRED !== "true" || Boolean(value.email), { message: "email_required", path: ["email"] })
   .refine((value) => value.password === value.confirmPassword, { message: "password_mismatch", path: ["confirmPassword"] });
 const loginSchema = z.object({ identifier: z.string().trim().min(3), password: z.string().min(6).max(128) });
+const otpRequestSchema = z.object({ email: z.string().trim().email(), purpose: z.enum(["register", "login", "recovery"]) });
+const otpVerifySchema = z.object({ email: z.string().trim().email(), token: z.string().trim().regex(/^\d{6}$/), purpose: z.enum(["register", "login", "recovery"]) });
 const passwordChangeSchema = z.object({ currentPassword: z.string().min(6).max(128), newPassword: z.string().min(8).max(128), confirmPassword: z.string().min(8).max(128) }).refine((value) => value.newPassword === value.confirmPassword, { message: "password_mismatch", path: ["confirmPassword"] });
 const profileUpdateSchema = z.object({ displayName: z.string().trim().min(2).max(30), email: z.string().trim().email().optional().or(z.literal("")), phone: z.string().trim().regex(/^1[3-9]\d{9}$/).optional().or(z.literal("")) }).refine((value) => Boolean(value.email || value.phone), { message: "email_or_phone_required" });
 const emailSchema = z.object({ email: z.string().trim().email() });
@@ -212,11 +251,50 @@ export function createApp({ database }: { database: VentureDatabase }) {
     try {
       database.prepare("SELECT 1").get();
       const email = emailDeliveryStatus();
-      if (process.env.NODE_ENV === "production" && !email.configured) return context.json({ status: "not_ready", database: "ok", email: "not_configured" }, 503);
-      return context.json({ status: "ready", database: "ok", email, time: new Date().toISOString() });
+      const supabase = supabaseRuntimeStatus();
+      if (process.env.NODE_ENV === "production" && !email.configured && !supabase.authEnabled) return context.json({ status: "not_ready", database: "ok", email: "not_configured", supabase }, 503);
+      return context.json({ status: "ready", database: "ok", email, supabase, time: new Date().toISOString() });
     } catch {
       return context.json({ status: "not_ready", database: "error" }, 503);
     }
+  });
+
+  app.post("/api/auth/otp/request", async (context) => {
+    const parsed = otpRequestSchema.safeParse(await context.req.json().catch(() => null));
+    if (!parsed.success) return context.json({ error: "invalid_otp_request", issues: parsed.error.flatten() }, 400);
+    const client = getSupabaseAuthClient();
+    if (!client) return context.json({ error: "supabase_auth_not_configured" }, 503);
+    const { error } = await client.auth.signInWithOtp({
+      email: parsed.data.email,
+      options: { shouldCreateUser: parsed.data.purpose === "register" },
+    });
+    if (error) return context.json({ error: "otp_delivery_failed", detail: error.message }, 503);
+    return context.json({ status: "sent", expiresIn: 300, resendAfter: 60 });
+  });
+
+  app.post("/api/auth/otp/verify", async (context) => {
+    const parsed = otpVerifySchema.safeParse(await context.req.json().catch(() => null));
+    if (!parsed.success) return context.json({ error: "invalid_otp", issues: parsed.error.flatten() }, 400);
+    const client = getSupabaseAuthClient();
+    if (!client) return context.json({ error: "supabase_auth_not_configured" }, 503);
+    const { data, error } = await client.auth.verifyOtp({ email: parsed.data.email, token: parsed.data.token, type: "email" });
+    if (error || !data.user) return context.json({ error: "invalid_or_expired_otp" }, 400);
+    if (parsed.data.purpose === "register" || parsed.data.purpose === "recovery") {
+      return context.json({
+        status: "verified",
+        email: data.user.email,
+        supabaseUserId: data.user.id,
+        supabaseAccessToken: data.session?.access_token ?? null,
+      });
+    }
+    const account = getAuthAccountBySupabaseUserId(database, data.user.id) ?? findAuthAccount(database, parsed.data.email);
+    if (!account) return context.json({ error: "account_not_registered" }, 404);
+    if (!account.supabaseUserId) linkSupabaseUser(database, account.userId, data.user.id);
+    if (account.status === "pending") return context.json({ error: "account_pending" }, 403);
+    if (account.status === "rejected") return context.json({ error: "account_rejected" }, 403);
+    if (account.status === "suspended") return context.json({ error: "account_suspended" }, 403);
+    const session = createSession({ userId: account.userId, organizationId: account.organizationId }, database);
+    return context.json({ status: "authenticated", session, actor: resolveActor(database, account.userId, account.organizationId) });
   });
 
   app.post("/api/auth/register", async (context) => {
@@ -225,11 +303,22 @@ export function createApp({ database }: { database: VentureDatabase }) {
     if (!verifyCaptchaChallenge(parsed.data.captchaId, parsed.data.captchaCode, database)) {
       return context.json({ error: "invalid_captcha" }, 400);
     }
+    let supabaseUserId: string | undefined;
+    if (parsed.data.supabaseAccessToken) {
+      const supabaseUser = await getSupabaseUser(parsed.data.supabaseAccessToken);
+      if (!supabaseUser || !supabaseUser.email || supabaseUser.email.toLowerCase() !== parsed.data.email?.toLowerCase()) {
+        return context.json({ error: "email_verification_required" }, 400);
+      }
+      supabaseUserId = supabaseUser.id;
+    } else if (process.env.SUPABASE_REQUIRE_EMAIL_OTP === "true" && parsed.data.email) {
+      return context.json({ error: "email_verification_required" }, 400);
+    }
     const contactName = parsed.data.contactName ?? parsed.data.userName!;
     const organizationName = parsed.data.organizationName ?? `普通用户 · ${contactName}`;
     const result = createAuthAccount(database, {
       email: parsed.data.email,
       phone: parsed.data.phone,
+      supabaseUserId,
       passwordHash: hashPassword(parsed.data.password),
       role: parsed.data.role,
       organizationName,
@@ -355,7 +444,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
     return context.json(result);
   });
 
-  app.get("/api/auth/config", (context) => context.json({ emailRequired: process.env.AUTH_EMAIL_REQUIRED === "true", captchaEnabled: true, emailVerificationEnabled: true, passwordResetEnabled: true }));
+  app.get("/api/auth/config", (context) => context.json({ emailRequired: process.env.AUTH_EMAIL_REQUIRED === "true", captchaEnabled: true, emailVerificationEnabled: true, passwordResetEnabled: true, otpEnabled: supabaseRuntimeStatus().authEnabled }));
 
   app.get("/api/auth/captcha", (context) => context.json(createCaptchaChallenge(database)));
 
@@ -435,6 +524,36 @@ export function createApp({ database }: { database: VentureDatabase }) {
     });
     writeAuditLog(database, actor, `project.${body.status}`, "project", project.id, { reviewStatus: body.status });
     return context.json({ project });
+  });
+
+  app.get("/api/admin/identity-submissions", (context) => {
+    const actor = actorFor(context.req.raw);
+    if (!actor) return context.json({ error: "authentication_required" }, 401);
+    if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
+    const type = context.req.query("type") as IdentitySubmissionType | undefined;
+    const status = context.req.query("status") as IdentitySubmissionStatus | undefined;
+    const q = context.req.query("q");
+    if (type && !["investor_thesis", "fa_recommendation", "government_demand"].includes(type)) return context.json({ error: "invalid_identity_submission_type" }, 400);
+    if (status && !["draft", "pending", "approved", "rejected", "archived"].includes(status)) return context.json({ error: "invalid_identity_submission_status" }, 400);
+    return context.json({ submissions: listIdentitySubmissionsForAdmin(database, { type, status, q }) });
+  });
+
+  app.post("/api/admin/identity-submissions/:submissionId/decision", async (context) => {
+    const actor = actorFor(context.req.raw);
+    if (!actor) return context.json({ error: "authentication_required" }, 401);
+    if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
+    const parsed = identityDecisionSchema.safeParse(await context.req.json().catch(() => null));
+    if (!parsed.success) return context.json({ error: "invalid_identity_decision", issues: parsed.error.flatten() }, 400);
+    if (parsed.data.status === "rejected" && !parsed.data.reason) return context.json({ error: "rejection_reason_required" }, 400);
+    const current = getIdentitySubmission(database, context.req.param("submissionId"));
+    if (!current) return context.json({ error: "identity_submission_not_found" }, 404);
+    const submission = updateIdentitySubmissionStatus(database, current.id, parsed.data.status, actor.userId, parsed.data.reason);
+    if (!submission) return context.json({ error: "identity_submission_not_found" }, 404);
+    const title = parsed.data.status === "approved" ? "身份内容已通过审核" : parsed.data.status === "rejected" ? "身份内容需要补充" : "身份内容已下架";
+    const body = parsed.data.status === "approved" ? `「${submission.title}」已公开展示。` : parsed.data.status === "rejected" ? `「${submission.title}」暂未通过审核。${parsed.data.reason}` : `「${submission.title}」已从公开区域下架。`;
+    createNotification(database, { userId: submission.ownerUserId, type: "system", title, body, resourceType: "identity_submission", resourceId: submission.id });
+    writeAuditLog(database, actor, `identity_submission.${parsed.data.status}`, "identity_submission", submission.id, { type: submission.type, reason: parsed.data.reason ?? null, version: submission.version });
+    return context.json({ submission });
   });
 
   app.get("/api/session", (context) => {
@@ -523,6 +642,12 @@ export function createApp({ database }: { database: VentureDatabase }) {
     return context.json({ requests: listContactRequestsForUser(database, actor.userId) });
   });
 
+  app.get("/api/me/identity-submissions", (context) => {
+    const actor = actorFor(context.req.raw);
+    if (!actor) return context.json({ error: "authentication_required" }, 401);
+    return context.json({ submissions: listIdentitySubmissionsForUser(database, actor.userId) });
+  });
+
   app.get("/api/me/incoming-bp-requests", (context) => {
     const actor = actorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
@@ -586,6 +711,43 @@ export function createApp({ database }: { database: VentureDatabase }) {
     });
     writeAuditLog(database, actor, "project.submitted", "project", project!.id, { reviewStatus: "pending" });
     return context.json({ project }, 201);
+  });
+
+  app.post("/api/identity-submissions", async (context) => {
+    const actor = actorFor(context.req.raw);
+    if (!actor) return context.json({ error: "authentication_required" }, 401);
+    const parsed = identitySubmissionSchema.safeParse(await context.req.json().catch(() => null));
+    if (!parsed.success) return context.json({ error: "invalid_identity_submission", issues: parsed.error.flatten() }, 400);
+    const expectedType: IdentitySubmissionType | null = actor.organizationType === "investor"
+      ? "investor_thesis"
+      : actor.organizationType === "fa"
+        ? "fa_recommendation"
+        : actor.organizationType === "government"
+          ? "government_demand"
+          : null;
+    if (!expectedType || parsed.data.type !== expectedType) return context.json({ error: "identity_submission_not_allowed" }, 403);
+    const submission = createIdentitySubmission(database, { ...parsed.data, ownerUserId: actor.userId, ownerOrganizationId: actor.organizationId });
+    if (!submission) return context.json({ error: "identity_submission_failed" }, 500);
+    if (submission.status === "pending") {
+      createNotification(database, { userId: actor.userId, type: "system", title: "身份内容已提交审核", body: `「${submission.title}」已进入平台审核队列。`, resourceType: "identity_submission", resourceId: submission.id });
+    }
+    writeAuditLog(database, actor, "identity_submission.created", "identity_submission", submission.id, { type: submission.type, status: submission.status });
+    return context.json({ submission }, 201);
+  });
+
+  app.patch("/api/identity-submissions/:submissionId", async (context) => {
+    const actor = actorFor(context.req.raw);
+    if (!actor) return context.json({ error: "authentication_required" }, 401);
+    const current = getIdentitySubmission(database, context.req.param("submissionId"));
+    if (!current) return context.json({ error: "identity_submission_not_found" }, 404);
+    if (current.ownerUserId !== actor.userId) return context.json({ error: "identity_submission_forbidden" }, 403);
+    const parsed = identitySubmissionUpdateSchema.safeParse(await context.req.json().catch(() => null));
+    if (!parsed.success) return context.json({ error: "invalid_identity_submission", issues: parsed.error.flatten() }, 400);
+    const submission = updateIdentitySubmissionContent(database, current.id, actor.userId, parsed.data);
+    if (!submission) return context.json({ error: "identity_submission_not_editable" }, 409);
+    if (submission.status === "pending") createNotification(database, { userId: actor.userId, type: "system", title: "身份内容已重新提交", body: `「${submission.title}」已进入平台审核队列。`, resourceType: "identity_submission", resourceId: submission.id });
+    writeAuditLog(database, actor, "identity_submission.updated", "identity_submission", submission.id, { type: submission.type, status: submission.status, version: submission.version });
+    return context.json({ submission });
   });
 
   app.post("/api/projects/:projectId/bp", async (context) => {
