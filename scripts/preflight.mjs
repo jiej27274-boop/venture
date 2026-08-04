@@ -1,8 +1,7 @@
 const targets = {
   web: process.env.VENTURE_WEB_URL ?? "http://127.0.0.1:5174/",
-  admin: process.env.VENTURE_ADMIN_URL ?? "http://127.0.0.1:5173/",
-  health: `${process.env.VENTURE_API_URL ?? "http://127.0.0.1:8787"}/health`,
-  ready: `${process.env.VENTURE_API_URL ?? "http://127.0.0.1:8787"}/readyz`,
+  admin: process.env.VENTURE_ADMIN_URL ?? "http://127.0.0.1:5174/admin/overview",
+  health: process.env.VENTURE_API_URL ?? "http://127.0.0.1:5174/api/health",
 };
 
 const checks = [];
@@ -10,7 +9,7 @@ for (const [name, url] of Object.entries(targets)) {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(8_000) });
     const result = { name, url, status: response.status, ok: response.ok };
-    if (name === "health" || name === "ready") {
+    if (name === "health") {
       result.body = await response.json().catch(() => null);
       result.securityHeaders = {
         contentTypeOptions: response.headers.get("x-content-type-options"),

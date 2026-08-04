@@ -1,8 +1,8 @@
 {
-  "name": "venture-platform",
+  "name": "@venture/next",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@10.32.1",
+  "type": "module",
   "scripts": {
     "predev": "node scripts/sync-admin-style.mjs",
     "dev": "next dev --hostname 127.0.0.1 --port 5174",
@@ -10,9 +10,7 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 5174",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "migrate:supabase": "node scripts/migrate-sqlite-to-supabase.mjs",
-    "preflight": "node scripts/preflight.mjs",
-    "test:domain": "pnpm --filter @venture/domain test"
+    "migrate:supabase": "node scripts/migrate-sqlite-to-supabase.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.0",
@@ -24,11 +22,9 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@types/node": "^24.0.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "@types/node": "^24.0.0",
-    "typescript": "^5.8.0",
-    "tsx": "^4.20.0",
-    "vitest": "^3.2.0"
+    "typescript": "^5.8.0"
   }
 }
