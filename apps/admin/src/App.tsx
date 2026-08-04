@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { api, type AdminArticle, type AuditLog, type AuthAccount, type AuthAccountStatus, type ContactRequest, type GovernmentContact, type Overview, type ProjectSummary } from "./api.ts";
+import { api, type AdminArticle, type AuditLog, type AuthAccount, type AuthAccountStatus, type ContactRequest, type GovernmentContact, type IdentitySubmission, type IdentitySubmissionStatus, type IdentitySubmissionType, type Overview, type ProjectSummary } from "./api.ts";
 import qifengLogoUrl from "./qifeng-capital-logo.png";
 
-type View = "overview" | "reviews" | "projects" | "government" | "leads" | "articles" | "audit";
+type View = "overview" | "reviews" | "identity" | "projects" | "government" | "leads" | "articles" | "audit";
 
 const navigation: Array<{ id: View; label: string; badge?: string }> = [
   { id: "overview", label: "运营总览" },
-  { id: "reviews", label: "认证与审核", badge: "2" },
+  { id: "reviews", label: "账号审核" },
+  { id: "identity", label: "身份内容审核" },
   { id: "projects", label: "项目与 BP" },
   { id: "government", label: "政府联系人" },
   { id: "leads", label: "对接线索" },
@@ -211,6 +212,55 @@ function ReviewsView({ accounts, filter, onFilterChange, roleFilter, onRoleFilte
   </>;
 }
 
+const identityTypeLabels: Record<IdentitySubmissionType, string> = {
+  investor_thesis: "投资方向",
+  fa_recommendation: "项目推荐",
+  government_demand: "招商需求",
+};
+
+const identityStatusLabels: Record<IdentitySubmissionStatus, string> = {
+  draft: "草稿",
+  pending: "待审核",
+  approved: "已发布",
+  rejected: "需修改",
+  archived: "已下架",
+};
+
+function IdentityReviewView({ submissions, onDecision, savingId }: {
+  submissions: IdentitySubmission[];
+  onDecision: (id: string, status: "approved" | "rejected" | "archived", reason?: string) => Promise<void>;
+  savingId: string | null;
+}) {
+  const [status, setStatus] = useState<IdentitySubmissionStatus | "all">("pending");
+  const [type, setType] = useState<IdentitySubmissionType | "all">("all");
+  const [query, setQuery] = useState("");
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const visible = submissions.filter((submission) => {
+    const matchesStatus = status === "all" || submission.status === status;
+    const matchesType = type === "all" || submission.type === type;
+    const matchesQuery = !normalizedQuery || [submission.title, submission.summary, submission.industry, submission.region, submission.ownerOrganizationName].some((value) => value.toLowerCase().includes(normalizedQuery));
+    return matchesStatus && matchesType && matchesQuery;
+  });
+  const pendingCount = submissions.filter((submission) => submission.status === "pending").length;
+  const closeReject = () => { setRejectingId(null); setReason(""); };
+  const submitReject = async (id: string) => { if (!reason.trim()) return; await onDecision(id, "rejected", reason.trim()); closeReject(); };
+  return <section className="panel identity-review-panel">
+    <header className="panel-header">
+      <div><span className="eyebrow">IDENTITY CONTENT</span><h2>身份发布审核</h2><p className="panel-subtitle">投资机构、FA 和政府招商内容统一进入平台审核，审核通过后才会公开展示。</p></div>
+      <span className="status-chip">{pendingCount} 条待处理</span>
+    </header>
+    <div className="identity-review-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、主体、行业或地区" aria-label="搜索身份发布"/><select value={type} onChange={(event) => setType(event.target.value as IdentitySubmissionType | "all")} aria-label="身份内容类型"><option value="all">全部内容类型</option>{Object.entries(identityTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select value={status} onChange={(event) => setStatus(event.target.value as IdentitySubmissionStatus | "all")} aria-label="身份内容状态"><option value="all">全部状态</option>{Object.entries(identityStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+    {visible.length ? <div className="identity-review-list">{visible.map((submission) => <article className="identity-review-card" key={submission.id}>
+      <div className="identity-review-card-top"><span className="identity-type-mark">{identityTypeLabels[submission.type]}</span><span className={`status-chip identity-status ${submission.status === "approved" ? "ok" : submission.status === "rejected" || submission.status === "archived" ? "rejected" : ""}`}>{identityStatusLabels[submission.status]}</span></div>
+      <div className="identity-review-card-main"><div className="identity-review-org"><b>{submission.ownerOrganizationName}</b><span>版本 {submission.version} · {new Date(submission.updatedAt).toLocaleString("zh-CN")}</span></div><h3>{submission.title}</h3><p>{submission.summary}</p><div className="identity-review-meta"><span>{submission.industry}</span><span>{submission.region}</span>{submission.stage && <span>{submission.stage}</span>}{submission.financingRange && <span>{submission.financingRange}</span>}</div>{submission.details.primary && <small className="identity-review-detail">补充说明：{submission.details.primary}</small>}{submission.rejectionReason && <small className="identity-review-reason">上次意见：{submission.rejectionReason}</small>}</div>
+      <div className="identity-review-actions">{submission.status === "pending" && <><button className="primary-button" disabled={savingId === submission.id} onClick={() => void onDecision(submission.id, "approved")}>{savingId === submission.id ? "处理中" : "通过并发布"}</button><button className="secondary-button" disabled={savingId === submission.id} onClick={() => { setRejectingId(submission.id); setReason(""); }}>驳回</button></>}{submission.status === "approved" && <button className="secondary-button" disabled={savingId === submission.id} onClick={() => void onDecision(submission.id, "archived")}>下架</button>}{submission.status === "rejected" && <button className="secondary-button" disabled={savingId === submission.id} onClick={() => void onDecision(submission.id, "approved")}>重新发布</button>}</div>
+      {rejectingId === submission.id && <div className="identity-reject-form"><label>驳回原因<input autoFocus value={reason} onChange={(event) => setReason(event.target.value)} placeholder="告诉提交方需要补充什么"/></label><button className="primary-button" disabled={!reason.trim() || savingId === submission.id} onClick={() => void submitReject(submission.id)}>确认驳回</button><button className="secondary-button" onClick={closeReject}>取消</button></div>}
+    </article>)}</div> : <EmptyState message="当前筛选条件下没有身份发布内容。"/>}
+  </section>;
+}
+
 function ProjectsView({ projects, onStatus }: { projects: ProjectSummary[]; onStatus: (id: string, status: "approved" | "rejected") => Promise<void> }) {
   return (
     <section className="panel">
@@ -343,17 +393,19 @@ export default function App() {
   const [contactRequests, setContactRequests] = useState<ContactRequest[]>([]);
   const [articles, setArticles] = useState<AdminArticle[]>([]);
   const [authAccounts, setAuthAccounts] = useState<AuthAccount[]>([]);
+  const [identitySubmissions, setIdentitySubmissions] = useState<IdentitySubmission[]>([]);
   const [authAccountFilter, setAuthAccountFilter] = useState<AuthAccountStatus | "all">("all");
   const [authRoleFilter, setAuthRoleFilter] = useState<AuthAccount["role"] | "all">("all");
   const [authAccountQuery, setAuthAccountQuery] = useState("");
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [identitySavingId, setIdentitySavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.overview(), api.projects(), api.governmentContacts(), api.contactRequests(), api.articles(), api.authAccounts()])
-      .then(([overviewPayload, projectPayload, contactPayload, requestPayload, articlePayload, authAccountPayload]) => {
+    Promise.all([api.overview(), api.projects(), api.governmentContacts(), api.contactRequests(), api.articles(), api.authAccounts(), api.identitySubmissions()])
+      .then(([overviewPayload, projectPayload, contactPayload, requestPayload, articlePayload, authAccountPayload, identityPayload]) => {
         setOverview(overviewPayload); setProjects(projectPayload.projects); setContacts(contactPayload.contacts);
-        setContactRequests(requestPayload.requests); setArticles(articlePayload.articles); setAuthAccounts(authAccountPayload.accounts);
+        setContactRequests(requestPayload.requests); setArticles(articlePayload.articles); setAuthAccounts(authAccountPayload.accounts); setIdentitySubmissions(identityPayload.submissions);
       })
       .catch((requestError: Error) => setError(requestError.message));
   }, []);
@@ -373,6 +425,18 @@ export default function App() {
   const updateProjectStatus = async (id: string, status: "approved" | "rejected") => {
     await api.updateProjectStatus(id, status);
     setProjects((await api.projects()).projects);
+  };
+
+  const updateIdentityStatus = async (id: string, status: "approved" | "rejected" | "archived", reason?: string) => {
+    setIdentitySavingId(id);
+    try {
+      await api.updateIdentitySubmissionStatus(id, status, reason);
+      const [submissionPayload, overviewPayload] = await Promise.all([api.identitySubmissions(), api.overview()]);
+      setIdentitySubmissions(submissionPayload.submissions);
+      setOverview(overviewPayload);
+    } finally {
+      setIdentitySavingId(null);
+    }
   };
 
   const updateContactRequest = async (id: string, status: ContactRequest["status"], note: string) => {
@@ -395,6 +459,7 @@ export default function App() {
   else if (overview) {
     if (activeView === "overview") content = <OverviewView overview={overview} projects={projects} />;
     if (activeView === "reviews") content = <ReviewsView accounts={authAccountFilter === "all" ? authAccounts : authAccounts.filter((account) => account.status === authAccountFilter)} filter={authAccountFilter} onFilterChange={setAuthAccountFilter} roleFilter={authRoleFilter} onRoleFilterChange={setAuthRoleFilter} query={authAccountQuery} onQueryChange={setAuthAccountQuery} onStatus={updateAuthAccount} approvingId={approvingId} />;
+    if (activeView === "identity") content = <IdentityReviewView submissions={identitySubmissions} onDecision={updateIdentityStatus} savingId={identitySavingId} />;
     if (activeView === "projects") content = <ProjectsView projects={projects} onStatus={updateProjectStatus} />;
     if (activeView === "government") content = <GovernmentView contacts={contacts} />;
     if (activeView === "leads") content = <LeadsView requests={contactRequests} onUpdate={updateContactRequest} />;

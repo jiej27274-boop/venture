@@ -11,6 +11,8 @@ import {
   type BpRequest,
   type IncomingBpRequest,
   type MyContactRequest,
+  type IdentitySubmission,
+  type IdentitySubmissionType,
   type GovernmentContact,
   type Organization,
   type Project,
@@ -763,31 +765,58 @@ function AccountView({ go }: { go: (view: View) => void }) {
 
 function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) => void }) {
   const [mode, setMode] = useState<"login" | "register" | "forgot">(initialRole ? "register" : "login");
+  const [loginMethod, setLoginMethod] = useState<"password" | "otp">("password");
   const [role, setRole] = useState<RoleId>(initialRole ?? "user");
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [emailRequired, setEmailRequired] = useState(false);
+  const [otpEnabled, setOtpEnabled] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpVerified, setOtpVerified] = useState(false);
+  const [supabaseAccessToken, setSupabaseAccessToken] = useState<string | undefined>();
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [otpNotice, setOtpNotice] = useState("");
   const [captcha, setCaptcha] = useState<{ captchaId: string; image: string } | null>(null);
   const [captchaLoading, setCaptchaLoading] = useState(false);
   const [resetToken, setResetToken] = useState("");
   const [resetComplete, setResetComplete] = useState(false);
   const [form, setForm] = useState({ userName: "", organization: "", contact: "", phone: "", email: "", password: "", confirm: "", captchaCode: "" });
-  const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const update = (key: keyof typeof form, value: string) => { setForm((current) => ({ ...current, [key]: value })); if (key === "email") { setOtpCode(""); setOtpVerified(false); setSupabaseAccessToken(undefined); setOtpNotice(""); } };
   const refreshCaptcha = async () => {
     setCaptchaLoading(true);
     try { const next = await api.captcha(); setCaptcha({ captchaId: next.captchaId, image: next.image }); update("captchaCode", ""); }
     catch { setError("验证码加载失败，请刷新页面重试。"); }
     finally { setCaptchaLoading(false); }
   };
-  useEffect(() => { void api.authConfig().then((config) => setEmailRequired(config.emailRequired)).catch(() => undefined); }, []);
+  useEffect(() => { void api.authConfig().then((config) => { setEmailRequired(config.emailRequired); setOtpEnabled(config.otpEnabled); }).catch(() => undefined); }, []);
   useEffect(() => { if (mode === "register" && !captcha) void refreshCaptcha(); }, [mode, captcha]);
+  useEffect(() => { if (!otpCooldown) return; const timer = window.setInterval(() => setOtpCooldown((current) => Math.max(0, current - 1)), 1000); return () => window.clearInterval(timer); }, [otpCooldown]);
+  const requestOtp = async () => {
+    if (!form.email) { setError("请先输入邮箱地址。"); return; }
+    setOtpBusy(true); setError(""); setOtpNotice("");
+    try { await api.requestOtp({ email: form.email, purpose: mode === "register" ? "register" : "login" }); setOtpCooldown(60); setOtpCode(""); setOtpVerified(false); setOtpNotice("验证码已发送，请检查邮箱，5 分钟内有效。"); }
+    catch (reason) { const code = reason instanceof Error ? reason.message : "otp_delivery_failed"; setError(code === "supabase_auth_not_configured" ? "邮件验证码尚未配置 Supabase，请先配置项目密钥。" : "验证码发送失败，请稍后重试。"); }
+    finally { setOtpBusy(false); }
+  };
+  const verifyEmailOtp = async () => {
+    if (!form.email || !/^\d{6}$/.test(otpCode)) { setError("请输入 6 位邮件验证码。"); return; }
+    setOtpBusy(true); setError(""); setOtpNotice("");
+    try {
+      const result = await api.verifyOtp({ email: form.email, token: otpCode, purpose: mode === "register" ? "register" : "login" });
+      if (mode === "register") { setSupabaseAccessToken(result.supabaseAccessToken ?? undefined); setOtpVerified(true); setOtpNotice("邮箱已验证，可以完成注册。"); }
+      else if (result.session) { window.localStorage.setItem("venture_session", result.session); setSubmitted(true); }
+    } catch (reason) { setError(reason instanceof Error && reason.message === "account_pending" ? "账号正在等待管理员审核。" : "验证码错误或已过期，请重新获取。"); }
+    finally { setOtpBusy(false); }
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setSaving(true); setError("");
     try {
       if (mode === "register") {
         if (!captcha) throw new Error("请先加载验证码");
-        await api.register({ email: form.email || undefined, phone: form.phone || undefined, password: form.password, confirmPassword: form.confirm, role, organizationName: role === "user" ? undefined : form.organization, contactName: role === "user" ? undefined : form.contact, userName: role === "user" ? form.userName : undefined, captchaId: captcha.captchaId, captchaCode: form.captchaCode });
+        if (otpEnabled && !otpVerified) throw new Error("请先验证邮箱验证码");
+        await api.register({ email: form.email || undefined, phone: form.phone || undefined, password: form.password, confirmPassword: form.confirm, role, organizationName: role === "user" ? undefined : form.organization, contactName: role === "user" ? undefined : form.contact, userName: role === "user" ? form.userName : undefined, captchaId: captcha.captchaId, captchaCode: form.captchaCode, supabaseAccessToken });
       } else if (mode === "forgot") {
         if (!resetToken) {
           const result = await api.requestPasswordReset(form.email);
@@ -798,6 +827,9 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
           setResetComplete(true);
           setSubmitted(true);
         }
+      } else if (loginMethod === "otp") {
+        await verifyEmailOtp();
+        return;
       } else {
         const result = await api.login({ identifier: form.email, password: form.password });
         window.localStorage.setItem("venture_session", result.session);
@@ -805,11 +837,11 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
       setSubmitted(true);
     } catch (reason) {
       const code = reason instanceof Error ? reason.message : "operation_failed";
-      setError(code === "invalid_captcha" ? "验证码错误或已过期，请重新输入。" : code === "identifier_taken" ? "手机号或邮箱已注册。" : code === "email_required" ? "请输入邮箱地址。" : code);
+      setError(code === "invalid_captcha" ? "验证码错误或已过期，请重新输入。" : code === "identifier_taken" ? "手机号或邮箱已注册。" : code === "email_required" ? "请输入邮箱地址。" : code === "otp_delivery_failed" ? "验证码发送失败，请稍后重试。" : code);
       if (code === "invalid_captcha") void refreshCaptcha();
     } finally { setSaving(false); }
   };
-  const switchMode = (next: "login" | "register" | "forgot") => { setMode(next); setSubmitted(false); setError(""); setResetToken(""); setResetComplete(false); if (next === "register") void refreshCaptcha(); };
+  const switchMode = (next: "login" | "register" | "forgot") => { setMode(next); setLoginMethod("password"); setSubmitted(false); setError(""); setOtpNotice(""); setResetToken(""); setResetComplete(false); setOtpCode(""); setOtpVerified(false); setSupabaseAccessToken(undefined); if (next === "register") void refreshCaptcha(); };
   const selectedRole = roleOptions.find((item) => item.id === role);
   return (
     <main className="auth-page">
@@ -850,6 +882,7 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
             </div>
           ) : (
             <form className="auth-form" onSubmit={submit}>
+              {mode === "login" && otpEnabled && <div className="auth-login-method auth-full"><button type="button" className={loginMethod === "password" ? "active" : ""} onClick={() => { setLoginMethod("password"); setError(""); setOtpNotice(""); }}>密码登录</button><button type="button" className={loginMethod === "otp" ? "active" : ""} onClick={() => { setLoginMethod("otp"); setError(""); setOtpNotice(""); }}>邮件验证码登录</button></div>}
               {mode === "register" && (
                 <>
                   <label className="auth-full">身份
@@ -869,12 +902,13 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
                   <label>手机号<input required pattern="1[3-9][0-9]{9}" value={form.phone} onChange={(event) => update("phone", event.target.value)} placeholder="请输入手机号"/></label>
                 </>
               )}
-              <label className={mode === "login" ? "auth-full" : ""}>邮箱地址{mode === "register" && !emailRequired ? "（选填）" : ""}
-                <input required={mode === "login" || emailRequired} type={mode === "login" ? "text" : "email"} value={form.email} onChange={(event) => update("email", event.target.value)} placeholder={mode === "login" ? "邮箱或手机号" : "name@company.com"}/>
+              <label className={mode === "login" ? "auth-full" : ""}>邮箱地址{mode === "register" && !emailRequired && !otpEnabled ? "（选填）" : ""}
+                <input required={mode === "login" ? loginMethod === "otp" : emailRequired || otpEnabled} type={mode === "login" && loginMethod === "password" ? "text" : "email"} value={form.email} onChange={(event) => update("email", event.target.value)} placeholder={mode === "login" && loginMethod === "password" ? "邮箱或手机号" : "name@company.com"}/>
               </label>
-              <label className={mode === "login" ? "auth-full" : ""}>密码
+              {((mode === "register" && otpEnabled) || (mode === "login" && loginMethod === "otp")) && <div className="auth-otp-row auth-full"><label>邮件验证码<input inputMode="numeric" autoComplete="one-time-code" required maxLength={6} pattern="[0-9]{6}" value={otpCode} onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6 位数字"/></label><button type="button" className="auth-otp-send" disabled={otpBusy || otpCooldown > 0 || !form.email} onClick={() => void requestOtp()}>{otpCooldown ? `${otpCooldown}s 后重发` : otpBusy ? "发送中…" : "发送验证码"}</button>{otpVerified && <span className="auth-otp-verified">邮箱已验证</span>}</div>}
+              {mode !== "login" || loginMethod === "password" ? <label className={mode === "login" ? "auth-full" : ""}>密码
                 <input required minLength={6} type="password" value={form.password} onChange={(event) => update("password", event.target.value)} placeholder="至少 6 位密码"/>
-              </label>
+              </label> : null}
               {mode === "register" && (
                 <>
                   <label>确认密码<input required minLength={6} type="password" value={form.confirm} onChange={(event) => update("confirm", event.target.value)} placeholder="再次输入密码"/></label>
@@ -886,7 +920,8 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
                 </>
               )}
               {error && <p className="auth-error">{error}</p>}
-              <button disabled={saving} className="auth-primary auth-submit">{saving ? "提交中…" : mode === "register" ? `完成注册进入${selectedRole?.label ?? "平台"}` : "登录创投智联"}&nbsp;→</button>
+              {otpNotice && <p className="auth-otp-notice">{otpNotice}</p>}
+              <button disabled={saving || otpBusy} className="auth-primary auth-submit">{saving ? "提交中…" : mode === "register" ? `完成注册进入${selectedRole?.label ?? "平台"}` : loginMethod === "otp" ? "验证并登录" : "登录创投智联"}&nbsp;→</button>
               <button type="button" className="auth-public" onClick={() => go("home")}>继续浏览公开项目&nbsp;→</button>
             </form>
           )}
@@ -1002,6 +1037,166 @@ function NotificationsStrip() {
   return <section className="section-wrap notifications-strip"><div className="section-heading-row"><SectionTitle eyebrow="NOTIFICATION CENTER" title="通知中心" description="账号审核、项目审核、BP 申请和对接需求的最新状态会在这里汇总。"/><div className="notification-toolbar"><span className="recent-count">{unreadCount} 条未读</span><button className="outline" disabled={!unreadCount || saving === "all"} onClick={() => void markAllRead()}>{saving === "all" ? "处理中…" : "全部已读"}</button></div></div>{!loaded ? <div className="notification-empty">正在加载通知…</div> : notifications.length ? <div className="notification-list">{notifications.map((notification) => <button key={notification.id} className={`notification-item ${notification.readAt ? "read" : "unread"}`} disabled={saving === notification.id} onClick={() => void markRead(notification)}><span className={`notification-dot ${notification.readAt ? "" : "active"}`} /><span className="notification-content"><span className="notification-meta"><b>{typeLabels[notification.type]}</b><small>{new Date(notification.createdAt).toLocaleString("zh-CN")}</small></span><strong>{notification.title}</strong><p>{notification.body}</p></span>{!notification.readAt && <em>未读</em>}</button>)}</div> : <div className="notification-empty">暂无通知。完成注册、提交项目或发起对接后，平台会在这里同步进度。</div>}</section>;
 }
 
+type WorkspaceSection = "overview" | "notifications" | "favorites" | "recent" | "profile" | "security" | "publish" | "submissions" | "bpRequests" | "contactRequests";
+
+const workspaceRoleMeta: Record<string, { label: string; eyebrow: string; description: string }> = {
+  user: { label: "普通用户", eyebrow: "PERSONAL DESK", description: "关注项目、机构和行业动态" },
+  investor: { label: "投资机构", eyebrow: "INVESTMENT DESK", description: "管理投资方向和项目征集" },
+  fa: { label: "FA 机构", eyebrow: "ADVISORY DESK", description: "推进项目推荐和资源对接" },
+  government: { label: "政府招商", eyebrow: "REGIONAL DESK", description: "发布招商需求和对接进度" },
+  project: { label: "项目方", eyebrow: "PROJECT DESK", description: "发布融资项目和管理 BP" },
+  platform: { label: "平台管理员", eyebrow: "PLATFORM DESK", description: "管理平台内容和审核事项" },
+};
+
+const workspaceSectionMeta: Record<WorkspaceSection, { label: string; description: string }> = {
+  overview: { label: "工作台", description: "当前身份的重点事项和快捷入口" },
+  notifications: { label: "通知中心", description: "账号、审核、BP 和对接进度" },
+  favorites: { label: "我的关注", description: "收藏的项目、机构和研究内容" },
+  recent: { label: "最近浏览", description: "最近查看过的项目与专题" },
+  profile: { label: "资料设置", description: "更新你的公开联系信息" },
+  security: { label: "账号安全", description: "更新密码和登录保护" },
+  publish: { label: "发布内容", description: "提交与你的身份匹配的公开内容" },
+  submissions: { label: "我的发布", description: "跟踪提交内容的审核状态" },
+  bpRequests: { label: "BP 申请", description: "查看或处理商业计划书访问申请" },
+  contactRequests: { label: "对接进度", description: "查看平台记录的资源对接需求" },
+};
+
+function WorkspaceHeading({ section, actor }: { section: WorkspaceSection; actor: AuthActor }) {
+  const role = workspaceRoleMeta[actor.organizationType] ?? workspaceRoleMeta.user;
+  const meta = workspaceSectionMeta[section];
+  return <div className="workspace-heading"><div><span className="workspace-eyebrow">{role.eyebrow}</span><h1>{meta.label}</h1><p>{meta.description}</p></div><span className="workspace-role-badge">{role.label}</span></div>;
+}
+
+function WorkspaceOverview({ actor, favorites, notifications, projects, submissions, go, onSelect }: { actor: AuthActor; favorites: Favorite[]; notifications: Notification[]; projects: import("./api.ts").OwnedProject[]; submissions: IdentitySubmission[]; go: (view: View) => void; onSelect: (section: WorkspaceSection) => void }) {
+  const role = workspaceRoleMeta[actor.organizationType] ?? workspaceRoleMeta.user;
+  const pendingCount = [...projects.filter((project) => project.reviewStatus === "pending"), ...submissions.filter((submission) => submission.status === "pending")].length;
+  const quickActions: Array<{ label: string; section?: WorkspaceSection; view?: View; note: string }> = actor.organizationType === "project"
+    ? [{ label: "发布融资项目", section: "publish", note: "提交项目摘要与 BP" }, { label: "处理 BP 申请", section: "bpRequests", note: "查看访问请求" }, { label: "查看项目状态", section: "submissions", note: "跟踪审核进度" }]
+    : actor.organizationType === "user"
+      ? [{ label: "浏览项目库", view: "projects", note: "发现新的项目机会" }, { label: "查看研究报告", view: "research", note: "关注行业判断" }, { label: "整理我的关注", section: "favorites", note: "回到已收藏内容" }]
+      : [{ label: actor.organizationType === "investor" ? "发布投资方向" : actor.organizationType === "fa" ? "发布项目推荐" : "发布招商需求", section: "publish", note: "进入身份发布表单" }, { label: "查看我的发布", section: "submissions", note: "跟踪审核状态" }, { label: "查看对接进度", section: "contactRequests", note: "继续推进资源连接" }];
+  return <div className="workspace-overview">
+    <section className="workspace-welcome"><div><span className="workspace-eyebrow">{role.eyebrow}</span><h2>{actor.displayName ?? "平台用户"}，欢迎回来</h2><p>{role.description}。这里集中处理与你相关的事项。</p></div><div className="workspace-welcome-mark">{(actor.displayName ?? role.label).slice(0, 1)}</div></section>
+    <div className="workspace-metrics"><button onClick={() => onSelect("notifications")}><span>未读通知</span><strong>{notifications.filter((item) => !item.readAt).length}</strong><small>需要及时查看</small></button><button onClick={() => onSelect("favorites")}><span>我的关注</span><strong>{favorites.length}</strong><small>收藏内容</small></button><button onClick={() => onSelect("submissions")}><span>待处理事项</span><strong>{pendingCount}</strong><small>审核中的内容</small></button></div>
+    <section className="workspace-panel workspace-quick-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">QUICK ACTIONS</span><h2>从这里继续</h2></div><span>{role.label}</span></div><div className="workspace-quick-grid">{quickActions.map((action) => <button key={action.label} onClick={() => action.section ? onSelect(action.section) : action.view && go(action.view)}><b>{action.label}</b><small>{action.note}</small><em>↗</em></button>)}</div></section>
+    <div className="workspace-overview-grid"><section className="workspace-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">RECENT ACTIVITY</span><h2>最近动态</h2></div><button className="workspace-text-button" onClick={() => onSelect("notifications")}>查看全部</button></div>{notifications.length ? <div className="workspace-activity-list">{notifications.slice(0, 4).map((item) => <button key={item.id} onClick={() => onSelect("notifications")}><i className={item.readAt ? "" : "active"}/><div><b>{item.title}</b><span>{item.body}</span></div><time>{new Date(item.createdAt).toLocaleDateString("zh-CN")}</time></button>)}</div> : <div className="workspace-empty">完成注册、发布内容或发起对接后，最新动态会出现在这里。</div>}</section><section className="workspace-panel workspace-next-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">NEXT STEP</span><h2>下一步建议</h2></div></div><div className="workspace-next-card"><span>{pendingCount ? "审核进行中" : "保持资料完整"}</span><strong>{pendingCount ? `你有 ${pendingCount} 项内容正在处理` : "完善你的身份资料和关注内容"}</strong><p>{pendingCount ? "平台审核完成后会通过通知中心同步结果。" : "信息越完整，后续的项目匹配和资源对接越顺畅。"}</p><button className="primary" onClick={() => onSelect(pendingCount ? "submissions" : "profile")}>{pendingCount ? "查看进度" : "完善资料"}</button></div></section></div>
+  </div>;
+}
+
+function WorkspaceNotifications({ notifications, onMarkRead, onMarkAll }: { notifications: Notification[]; onMarkRead: (notification: Notification) => void; onMarkAll: () => void }) {
+  const unread = notifications.filter((item) => !item.readAt).length;
+  const typeLabels: Record<Notification["type"], string> = { system: "系统", account: "账号", project: "项目", bp: "BP", contact: "对接" };
+  return <section className="workspace-panel workspace-list-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">NOTIFICATION CENTER</span><h2>通知中心</h2><p>重要状态会在这里汇总。</p></div><button className="outline" disabled={!unread} onClick={onMarkAll}>{unread ? `${unread} 条未读，全部已读` : "已全部读"}</button></div>{notifications.length ? <div className="workspace-notification-list">{notifications.map((item) => <button key={item.id} className={item.readAt ? "" : "unread"} onClick={() => onMarkRead(item)}><i className={item.readAt ? "" : "active"}/><div><span>{typeLabels[item.type]} · {new Date(item.createdAt).toLocaleString("zh-CN")}</span><b>{item.title}</b><p>{item.body}</p></div><em>{item.readAt ? "" : "未读"}</em></button>)}</div> : <div className="workspace-empty">暂无通知。完成注册、提交内容或发起对接后，平台会在这里同步进度。</div>}</section>;
+}
+
+function WorkspaceFavorites({ favorites, go }: { favorites: Favorite[]; go: (view: View) => void }) {
+  return <section className="workspace-panel workspace-list-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">MY COLLECTION</span><h2>我的关注</h2><p>收藏的内容会一直保留在这里。</p></div><strong className="workspace-count">{favorites.length}</strong></div>{favorites.length ? <div className="workspace-favorite-grid">{favorites.map((item) => <button key={`${item.resourceType}:${item.resourceId}`} onClick={() => go(item.resourceType === "project" ? "projects" : item.resourceType === "organization" ? "organizations" : "research")}><span>{item.resourceType === "project" ? "项目" : item.resourceType === "organization" ? "机构" : "研究"}</span><b>{item.resourceId}</b><small>查看详情 ↗</small></button>)}</div> : <div className="workspace-empty"><b>还没有关注内容</b><span>去项目库、公司或研究报告里收藏你想持续关注的内容。</span><button className="primary" onClick={() => go("projects")}>浏览项目库</button></div>}</section>;
+}
+
+function WorkspaceRecent({ views, projects, articles, go }: { views: RecentView[]; projects: Project[]; articles: Article[]; go: (view: View) => void }) {
+  const label = (view: RecentView) => view.resourceType === "project" ? projects.find((project) => project.id === view.resourceId)?.name ?? view.resourceId : view.resourceType === "article" ? articles.find((article) => article.id === view.resourceId)?.title ?? view.resourceId : view.resourceId;
+  return <section className="workspace-panel workspace-list-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">RECENTLY VIEWED</span><h2>最近浏览</h2><p>最近查看过的项目和专题。</p></div><strong className="workspace-count">{views.length}</strong></div>{views.length ? <div className="workspace-recent-list">{views.slice(0, 12).map((item) => <button key={`${item.resourceType}:${item.resourceId}`} onClick={() => go(item.resourceType === "project" ? "projects" : "research")}><span>{item.resourceType === "project" ? "项目" : "专题"}</span><b>{label(item)}</b><time>{new Date(item.viewedAt).toLocaleDateString("zh-CN")}</time><em>↗</em></button>)}</div> : <div className="workspace-empty"><b>还没有浏览记录</b><span>去项目库或研究与事件看看，之后可以从这里继续。</span><button className="primary" onClick={() => go("projects")}>开始探索</button></div>}</section>;
+}
+
+function WorkspaceProfilePanel() {
+  const [form, setForm] = useState({ displayName: "", email: "", phone: "" });
+  const [state, setState] = useState<"loading" | "idle" | "saving" | "success" | "error">("loading");
+  useEffect(() => { api.session().then(({ actor }) => setForm({ displayName: actor.displayName ?? "", email: actor.email ?? "", phone: actor.phone ?? "" })).catch(() => undefined).finally(() => setState("idle")); }, []);
+  const submit = async (event: FormEvent) => { event.preventDefault(); setState("saving"); try { await api.updateProfile({ displayName: form.displayName, email: form.email || undefined, phone: form.phone || undefined }); setState("success"); } catch { setState("error"); } };
+  return <section className="workspace-panel workspace-form-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">PROFILE SETTINGS</span><h2>资料设置</h2><p>公开联系信息会用于后续资源连接。</p></div></div><form onSubmit={submit} className="workspace-form"><label>显示名称<input required minLength={2} value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })}/></label><label>邮箱地址<input type="email" placeholder="选填" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })}/></label><label>手机号<input pattern="1[3-9][0-9]{9}" placeholder="选填" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })}/></label><div className="workspace-form-actions"><button className="primary" disabled={state === "loading" || state === "saving"}>{state === "saving" ? "保存中…" : "保存资料"}</button>{state === "success" && <span className="form-feedback success">资料已保存</span>}{state === "error" && <span className="form-feedback error">邮箱或手机号不可用</span>}</div></form></section>;
+}
+
+function WorkspaceSecurityPanel() {
+  const [form, setForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [state, setState] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const submit = async (event: FormEvent) => { event.preventDefault(); setState("saving"); try { await api.changePassword(form); setForm({ currentPassword: "", newPassword: "", confirmPassword: "" }); setState("success"); } catch { setState("error"); } };
+  return <section className="workspace-panel workspace-form-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">ACCOUNT SECURITY</span><h2>账号安全</h2><p>定期更新密码，保护项目和 BP 访问权限。</p></div></div><form onSubmit={submit} className="workspace-form workspace-security-form"><label>当前密码<input required minLength={6} type="password" value={form.currentPassword} onChange={(event) => setForm({ ...form, currentPassword: event.target.value })}/></label><label>新密码<input required minLength={8} type="password" placeholder="至少 8 位" value={form.newPassword} onChange={(event) => setForm({ ...form, newPassword: event.target.value })}/></label><label>确认新密码<input required minLength={8} type="password" value={form.confirmPassword} onChange={(event) => setForm({ ...form, confirmPassword: event.target.value })}/></label><div className="workspace-form-actions"><button className="primary" disabled={state === "saving"}>{state === "saving" ? "更新中…" : "更新密码"}</button>{state === "success" && <span className="form-feedback success">密码已更新</span>}{state === "error" && <span className="form-feedback error">当前密码错误或新密码不一致</span>}</div></form></section>;
+}
+
+function WorkspaceIdentityPublisher({ actor, editing, onSaved }: { actor: AuthActor; editing?: IdentitySubmission; onSaved: () => void }) {
+  const type = actor.organizationType as "investor" | "fa" | "government";
+  const meta = type === "investor" ? { type: "investor_thesis" as const, title: "发布投资方向", eyebrow: "INVESTMENT THESIS", summary: "向项目方说明机构关注的行业、阶段和投资条件。", detailLabel: "投资偏好", detailPlaceholder: "例如：先进制造、工业软件、绿色能源；关注已有客户验证的团队" } : type === "fa" ? { type: "fa_recommendation" as const, title: "发布项目推荐", eyebrow: "FA RECOMMENDATION", summary: "发布你正在服务的项目和融资需求，进入平台审核。", detailLabel: "服务说明", detailPlaceholder: "例如：团队背景、融资节奏、可提供的产业资源" } : { type: "government_demand" as const, title: "发布招商需求", eyebrow: "GOVERNMENT DEMAND", summary: "发布区域产业方向、空间和政策条件，寻找匹配项目。", detailLabel: "空间与政策条件", detailPlaceholder: "例如：目标产业、可用空间、配套政策、落地周期" };
+  const [form, setForm] = useState({ title: editing?.title ?? "", summary: editing?.summary ?? "", industry: editing?.industry ?? "", region: editing?.region ?? "", stage: editing?.stage ?? "", financingRange: editing?.financingRange ?? "", detail: editing?.details.primary ?? "" });
+  const [state, setState] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const save = async (status: "draft" | "pending") => { setState("saving"); try { const payload = { title: form.title, summary: form.summary, industry: form.industry, region: form.region, stage: form.stage, financingRange: form.financingRange, details: { primary: form.detail }, status }; if (editing) await api.updateIdentitySubmission(editing.id, payload); else await api.submitIdentitySubmission({ type: meta.type, ...payload }); setForm({ title: "", summary: "", industry: "", region: "", stage: "", financingRange: "", detail: "" }); setState("success"); onSaved(); } catch { setState("error"); } };
+  return <section className="workspace-panel workspace-form-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">{meta.eyebrow}</span><h2>{editing ? "修改并重提" : meta.title}</h2><p>{editing ? "根据管理员意见补充内容，保存后会生成新的版本并重新进入审核。" : meta.summary}</p></div><span className="workspace-form-note">{editing ? `当前版本 ${editing.version}` : "提交后由平台审核"}</span></div><form className="workspace-form workspace-publish-form" onSubmit={(event) => { event.preventDefault(); void save("pending"); }}><label className="wide">标题<input required minLength={4} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder={type === "investor" ? "例如：关注先进制造和工业软件的早期投资方向" : type === "fa" ? "例如：寻找 A 轮制造业项目的产业投资人" : "例如：临港先进制造产业项目招商需求"}/></label><label>行业领域<input required value={form.industry} onChange={(event) => setForm({ ...form, industry: event.target.value })} placeholder="人工智能、先进制造…"/></label><label>地区<input required value={form.region} onChange={(event) => setForm({ ...form, region: event.target.value })} placeholder="北京、上海或区域名称"/></label><label>阶段/规模<input value={form.stage} onChange={(event) => setForm({ ...form, stage: event.target.value })} placeholder={type === "government" ? "产业阶段或企业规模" : "天使、A 轮、成长期"}/></label><label>额度/空间<input value={form.financingRange} onChange={(event) => setForm({ ...form, financingRange: event.target.value })} placeholder={type === "government" ? "空间规模或政策范围" : "单笔额度或融资需求"}/></label><label className="wide">{meta.detailLabel}<textarea required minLength={10} value={form.detail} onChange={(event) => setForm({ ...form, detail: event.target.value })} placeholder={meta.detailPlaceholder}/></label><label className="wide">公开摘要<textarea required minLength={20} value={form.summary} onChange={(event) => setForm({ ...form, summary: event.target.value })} placeholder="面向公开市场的简短说明，至少 20 字"/></label><div className="workspace-form-actions wide"><button type="button" className="outline" disabled={state === "saving"} onClick={() => void save("draft")}>保存草稿</button><button className="primary" disabled={state === "saving"}>{state === "saving" ? "提交中…" : editing ? "重新提交审核" : "提交审核"}</button>{state === "success" && <span className="form-feedback success">内容已保存</span>}{state === "error" && <span className="form-feedback error">提交失败，请检查后重试</span>}</div></form></section>;
+}
+
+function WorkspaceSubmissions({ actor, projects, submissions, onSelect, onNew, onEdit }: { actor: AuthActor; projects: import("./api.ts").OwnedProject[]; submissions: IdentitySubmission[]; onSelect: (section: WorkspaceSection) => void; onNew: () => void; onEdit: (submission: IdentitySubmission) => void }) {
+  const statusLabel: Record<string, string> = { draft: "草稿", pending: "待审核", approved: "已发布", rejected: "需修改", archived: "已下架" };
+  return <section className="workspace-panel workspace-list-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">MY SUBMISSIONS</span><h2>我的发布</h2><p>查看内容审核状态和平台反馈。</p></div><button className="primary" onClick={onNew}>新建发布</button></div><div className="workspace-submission-list">{actor.organizationType === "project" && projects.map((project) => <article key={project.id}><div className="workspace-submission-type">项目</div><div><b>{project.name}</b><p>{project.industry} · {project.region} · {project.stage}</p></div><span className={`workspace-status ${project.reviewStatus}`}>{statusLabel[project.reviewStatus]}</span><small>{project.bpFileName ? `BP：${project.bpFileName}` : "尚未上传 BP"}</small></article>)}{submissions.map((submission) => <article key={submission.id}><div className="workspace-submission-type">{submission.type === "investor_thesis" ? "投资方向" : submission.type === "fa_recommendation" ? "项目推荐" : "招商需求"}</div><div><b>{submission.title}</b><p>{submission.industry} · {submission.region} · {submission.summary}</p>{submission.rejectionReason && <small className="workspace-rejection">管理员意见：{submission.rejectionReason}</small>}</div><span className={`workspace-status ${submission.status}`}>{statusLabel[submission.status]}</span><div className="workspace-submission-side"><small>版本 {submission.version}</small>{(submission.status === "rejected" || submission.status === "draft") && <button className="workspace-edit-button" onClick={() => onEdit(submission)}>修改重提</button>}</div></article>)}{!projects.length && !submissions.length && <div className="workspace-empty"><b>还没有发布内容</b><span>从你的身份工作台开始发布第一条内容。</span><button className="primary" onClick={onNew}>开始发布</button></div>}</div></section>;
+}
+
+function WorkspaceBpPanel({ actor, requests, incoming, onRefresh }: { actor: AuthActor; requests: BpRequest[]; incoming: IncomingBpRequest[]; onRefresh: () => void }) {
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const decide = async (id: string, decision: "approved" | "rejected") => { setSavingId(id); try { await api.decideBpRequest(id, decision); onRefresh(); } finally { setSavingId(null); } };
+  const isProject = actor.organizationType === "project";
+  const list = isProject ? incoming : requests;
+  return <section className="workspace-panel workspace-list-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">BP ACCESS</span><h2>{isProject ? "收到的 BP 申请" : "我的 BP 申请"}</h2><p>{isProject ? "审核机构对项目材料的访问请求。" : "查看你提交过的商业计划书访问申请。"}</p></div></div>{list.length ? <div className="workspace-bp-list">{list.map((request) => <article key={request.id}><div><b>{request.projectName}{isProject && " · " + (request as IncomingBpRequest).requesterOrganizationName}</b><p>{request.purpose}</p></div>{isProject && request.status === "pending" ? <div className="workspace-inline-actions"><button className="primary" disabled={savingId === request.id} onClick={() => void decide(request.id, "approved")}>批准</button><button className="outline" disabled={savingId === request.id} onClick={() => void decide(request.id, "rejected")}>拒绝</button></div> : <span className={`workspace-status ${request.status}`}>{request.status === "pending" ? "待审核" : request.status === "approved" ? "已通过" : "已拒绝"}</span>}</article>)}</div> : <div className="workspace-empty"><b>暂无 BP 申请</b><span>{isProject ? "机构提交访问申请后，会出现在这里。" : "浏览项目并提交 BP 查看申请后，可以在这里跟踪。"}</span></div>}</section>;
+}
+
+function WorkspaceContactPanel({ requests }: { requests: MyContactRequest[] }) {
+  const labels: Record<MyContactRequest["status"], string> = { new: "待处理", contacted: "已联系", progressing: "对接中", completed: "已完成", closed: "已关闭" };
+  return <section className="workspace-panel workspace-list-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">MATCHING PROGRESS</span><h2>对接进度</h2><p>查看你提交的资源对接需求和平台跟进状态。</p></div></div>{requests.length ? <div className="workspace-contact-list">{requests.map((request) => <article key={request.id}><div><b>{request.organization}</b><p>{request.targetRegion || "待匹配地区"} · {request.need}</p></div><span className={`workspace-status ${request.status}`}>{labels[request.status]}</span><time>{new Date(request.createdAt).toLocaleDateString("zh-CN")}</time></article>)}</div> : <div className="workspace-empty"><b>暂无对接记录</b><span>从政府对接页面提交需求后，平台会在这里同步进度。</span></div>}</section>;
+}
+
+function AccountWorkspace({ go, projects, articles }: { go: (view: View) => void; projects: Project[]; articles: Article[] }) {
+  const [actor, setActor] = useState<AuthActor>();
+  const [active, setActive] = useState<WorkspaceSection>("overview");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [favorites, setFavorites] = useState<Favorite[]>([]);
+  const [views, setViews] = useState<RecentView[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [projectsOwned, setProjectsOwned] = useState<import("./api.ts").OwnedProject[]>([]);
+  const [identitySubmissions, setIdentitySubmissions] = useState<IdentitySubmission[]>([]);
+  const [editingSubmission, setEditingSubmission] = useState<IdentitySubmission>();
+  const [bpRequests, setBpRequests] = useState<BpRequest[]>([]);
+  const [incomingBpRequests, setIncomingBpRequests] = useState<IncomingBpRequest[]>([]);
+  const [contactRequests, setContactRequests] = useState<MyContactRequest[]>([]);
+  const load = async () => {
+    try {
+      const session = await api.session();
+      setActor(session.actor);
+      const results = await Promise.allSettled([api.favorites(), api.recentViews(), api.notifications(), api.myProjects(), api.myIdentitySubmissions(), api.myBpRequests(), api.incomingBpRequests(), api.myContactRequests()]);
+      const [favoriteResult, viewResult, notificationResult, projectResult, submissionResult, requestResult, incomingResult, contactResult] = results;
+      if (favoriteResult.status === "fulfilled") setFavorites(favoriteResult.value.favorites);
+      if (viewResult.status === "fulfilled") setViews(viewResult.value.views);
+      if (notificationResult.status === "fulfilled") setNotifications(notificationResult.value.notifications);
+      if (projectResult.status === "fulfilled") setProjectsOwned(projectResult.value.projects);
+      if (submissionResult.status === "fulfilled") setIdentitySubmissions(submissionResult.value.submissions);
+      if (requestResult.status === "fulfilled") setBpRequests(requestResult.value.requests);
+      if (incomingResult.status === "fulfilled") setIncomingBpRequests(incomingResult.value.requests);
+      if (contactResult.status === "fulfilled") setContactRequests(contactResult.value.requests);
+      setError("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "账号信息加载失败"); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); }, []);
+  const logout = async () => { try { await api.logout(); } catch { /* session may already be expired */ } finally { window.localStorage.removeItem("venture_session"); go("home"); } };
+  const selectSection = (section: WorkspaceSection) => { setActive(section); setMobileMenuOpen(false); };
+  const markRead = async (notification: Notification) => { if (notification.readAt) return; await api.markNotificationRead(notification.id); setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, readAt: new Date().toISOString() } : item)); };
+  const markAll = async () => { await api.markAllNotificationsRead(); setNotifications((current) => current.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() }))); };
+  if (loading) return <main className="account-workspace-page"><div className="workspace-loading"><span className="workspace-loading-bar"/><span className="workspace-loading-bar short"/><span className="workspace-loading-card"/></div></main>;
+  if (error || !actor) return <main className="account-workspace-page"><div className="workspace-error"><span className="workspace-eyebrow">ACCOUNT CENTER</span><h1>暂时无法打开工作台</h1><p>{error || "登录状态已失效，请重新登录。"}</p><button className="primary" onClick={() => go("auth")}>重新登录</button></div></main>;
+  const role = workspaceRoleMeta[actor.organizationType] ?? workspaceRoleMeta.user;
+  const roleItems: Array<{ id: WorkspaceSection; label: string }> = actor.organizationType === "user" ? [] : actor.organizationType === "project" ? [{ id: "publish", label: "发布融资项目" }, { id: "submissions", label: "我的项目" }, { id: "bpRequests", label: "收到的 BP 申请" }] : actor.organizationType === "investor" ? [{ id: "publish", label: "投资方向" }, { id: "submissions", label: "我的发布" }, { id: "bpRequests", label: "我的 BP 申请" }] : actor.organizationType === "fa" ? [{ id: "publish", label: "项目推荐" }, { id: "submissions", label: "我的发布" }, { id: "contactRequests", label: "对接进度" }] : [{ id: "publish", label: "招商需求" }, { id: "submissions", label: "我的发布" }, { id: "contactRequests", label: "对接进度" }];
+  const sharedItems: Array<{ id: WorkspaceSection; label: string }> = [{ id: "overview", label: "工作台" }, { id: "notifications", label: "通知中心" }, { id: "favorites", label: "我的关注" }, { id: "recent", label: "最近浏览" }];
+  const settingsItems: Array<{ id: WorkspaceSection; label: string }> = [{ id: "profile", label: "资料设置" }, { id: "security", label: "账号安全" }];
+  const renderSection = () => { if (active === "overview") return <WorkspaceOverview actor={actor} favorites={favorites} notifications={notifications} projects={projectsOwned} submissions={identitySubmissions} go={go} onSelect={selectSection}/>; if (active === "notifications") return <WorkspaceNotifications notifications={notifications} onMarkRead={(notification) => void markRead(notification)} onMarkAll={() => void markAll()}/>; if (active === "favorites") return <WorkspaceFavorites favorites={favorites} go={go}/>; if (active === "recent") return <WorkspaceRecent views={views} projects={projects} articles={articles} go={go}/>; if (active === "profile") return <WorkspaceProfilePanel/>; if (active === "security") return <WorkspaceSecurityPanel/>; if (active === "publish") return actor.organizationType === "project" ? <WorkspaceProjectPublisher onSaved={() => void load()}/> : <WorkspaceIdentityPublisher key={editingSubmission?.id ?? "new"} actor={actor} editing={editingSubmission} onSaved={() => { setEditingSubmission(undefined); void load(); }}/>; if (active === "submissions") return <WorkspaceSubmissions actor={actor} projects={projectsOwned} submissions={identitySubmissions} onSelect={selectSection} onNew={() => { setEditingSubmission(undefined); selectSection("publish"); }} onEdit={(submission) => { setEditingSubmission(submission); selectSection("publish"); }}/>; if (active === "bpRequests") return <WorkspaceBpPanel actor={actor} requests={bpRequests} incoming={incomingBpRequests} onRefresh={() => void load()}/>; return <WorkspaceContactPanel requests={contactRequests}/>; };
+  const renderNavGroup = (label: string, items: Array<{ id: WorkspaceSection; label: string }>) => <div className="workspace-nav-group"><span>{label}</span>{items.map((item) => <button key={item.id} className={active === item.id ? "active" : ""} onClick={() => selectSection(item.id)}>{item.label}{item.id === "notifications" && notifications.some((notification) => !notification.readAt) && <i/>}</button>)}</div>;
+  return <main className="account-workspace-page"><div className="account-workspace-shell"><aside className={`account-workspace-sidebar${mobileMenuOpen ? " open" : ""}`}><div className="workspace-brand"><img src={qifengLogoUrl} alt="启峰创投"/><span>个人工作台</span></div><div className="workspace-current-role"><div className="workspace-current-avatar">{(actor.displayName ?? role.label).slice(0, 1)}</div><div><b>{actor.displayName ?? "平台用户"}</b><span>{role.label}</span></div><em>⌄</em></div><nav>{renderNavGroup("总览", sharedItems)}{roleItems.length > 0 && renderNavGroup("身份工作台", roleItems)}{renderNavGroup("账户设置", settingsItems)}</nav><div className="workspace-sidebar-footer"><span className="workspace-online-dot"/><div><b>账号状态正常</b><small>{actor.organizationVerified ? "主体已完成认证" : "主体等待认证"}</small></div></div><button className="workspace-logout" onClick={() => void logout()}>退出登录</button></aside>{mobileMenuOpen && <button className="workspace-menu-backdrop" aria-label="关闭个人中心菜单" onClick={() => setMobileMenuOpen(false)}/>}<section className="account-workspace-content"><div className="workspace-mobile-bar"><button aria-label="打开个人中心菜单" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((current) => !current)}>☰</button><span>{workspaceSectionMeta[active].label}</span><b>{role.label}</b></div><WorkspaceHeading section={active} actor={actor}/>{renderSection()}</section></div></main>;
+}
+
+function WorkspaceProjectPublisher({ onSaved }: { onSaved: () => void }) {
+  const [form, setForm] = useState({ name: "", summary: "", industry: "", region: "", stage: "", financingRange: "", identityMode: "named" as "named" | "anonymous", anonymousName: "" });
+  const [file, setFile] = useState<File>();
+  const [state, setState] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const submit = async (event: FormEvent) => { event.preventDefault(); setState("saving"); try { const result = await api.submitProject(form); if (file) await api.uploadBp(result.project.id, file); setForm({ name: "", summary: "", industry: "", region: "", stage: "", financingRange: "", identityMode: "named", anonymousName: "" }); setFile(undefined); setState("success"); onSaved(); } catch { setState("error"); } };
+  return <section className="workspace-panel workspace-form-panel"><div className="workspace-panel-heading"><div><span className="workspace-eyebrow">PROJECT SUBMISSION</span><h2>发布融资项目</h2><p>提交项目公开摘要和 BP，审核通过后进入项目库。</p></div><span className="workspace-form-note">平台审核后公开</span></div><form className="workspace-form workspace-publish-form" onSubmit={submit}><label className="wide">项目名称<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })}/></label><label>行业标签<input required value={form.industry} onChange={(event) => setForm({ ...form, industry: event.target.value })}/></label><label>所在地区<input required value={form.region} onChange={(event) => setForm({ ...form, region: event.target.value })}/></label><label>融资阶段<input required value={form.stage} onChange={(event) => setForm({ ...form, stage: event.target.value })}/></label><label>融资需求<input required value={form.financingRange} onChange={(event) => setForm({ ...form, financingRange: event.target.value })}/></label><label>展示方式<select value={form.identityMode} onChange={(event) => setForm({ ...form, identityMode: event.target.value as "named" | "anonymous" })}><option value="named">实名展示</option><option value="anonymous">匿名展示</option></select></label>{form.identityMode === "anonymous" && <label>匿名名称<input required value={form.anonymousName} onChange={(event) => setForm({ ...form, anonymousName: event.target.value })}/></label>}<label className="wide">项目公开摘要<textarea required minLength={20} value={form.summary} onChange={(event) => setForm({ ...form, summary: event.target.value })}/></label><label className="wide workspace-file-field">上传 BP（可选）<input type="file" accept=".pdf,.ppt,.pptx" onChange={(event) => setFile(event.target.files?.[0])}/></label><div className="workspace-form-actions wide"><button className="primary" disabled={state === "saving"}>{state === "saving" ? "提交中…" : "提交审核"}</button>{state === "success" && <span className="form-feedback success">项目已提交，等待平台审核</span>}{state === "error" && <span className="form-feedback error">提交失败，请检查后重试</span>}</div></form></section>;
+}
+
 export default function App() {
   useEffect(() => { if (window.location.pathname !== "/") window.history.replaceState({}, "", `/${window.location.hash}`); }, []);
   const [view, setView] = useState<View>(() => (window.location.hash.slice(1) as View) || "home");
@@ -1057,6 +1252,6 @@ export default function App() {
   if (view === "industries") content = <IndustryMapPage onBackHome={() => go("home")}/>;
   if (view === "services") content = <ServicesPage onBackHome={() => go("home")} onNavigate={(destination) => { if (destination === "auth") setSelectedRole("user"); go(destination); }}/>;
   if (view === "auth") content = <AuthView initialRole={selectedRole} go={go}/>;
-  if (view === "account") content = <><AccountView go={go}/><NotificationsStrip/><AccountProfileStrip/><EmailVerificationStrip/><AccountSecurityStrip/><MyProjectsStrip/><MyBpRequestsStrip/><IncomingBpRequestsStrip/><MyContactRequestsStrip/><RecentViewsStrip views={recentViews} projects={projects} articles={articles} go={go}/></>;
+  if (view === "account") content = <AccountWorkspace go={go} projects={projects} articles={articles}/>;
   return <div className={`site-shell view-${view}`}><header className="site-header"><div className="header-inner"><button className="brand" onClick={() => go("home")}><QifengLogo /></button><button className="menu-button" aria-label="打开导航" onClick={() => setMenuOpen(!menuOpen)}><i/><i/><i/></button><nav className={menuOpen ? "open" : ""}>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => go(item.id)}>{item.label}</button>)}</nav><GlobalSearch projects={projects} organizations={organizations} contacts={contacts} onSearch={handleSearch}/><button className="header-cta" onClick={() => { setSelectedRole("user"); go("auth"); }}>登录注册</button></div></header>{loading ? <div className="loading">正在连接创投资源…</div> : error ? <div className="loading error">载入失败：{error}</div> : content}<footer><div className="section-wrap footer-grid"><div><div className="footer-brand"><QifengLogo /></div><p>连接项目、资本与政府产业资源。</p></div><div><b>平台导航</b><button onClick={() => go("projects")}>投融资</button><button onClick={() => go("organizations")}>公司</button><button onClick={() => go("institutions")}>创投机构</button><button onClick={() => go("government")}>政府对接</button><button onClick={() => go("research")}>研究报告</button><button onClick={() => go("events")}>创投电报</button><button onClick={() => go("industries")}>行业图谱</button><button onClick={() => go("services")}>产品服务</button></div><div><b>安全原则</b><span>主体认证</span><span>最小权限</span><span>访问留痕</span></div><div><b>当前版本</b><span>试点 MVP</span><span>线下登记与对接</span><span>正式上线需备案域名</span></div></div><div className="footer-bottom">© 2026 创投智联 · 本平台信息仅供交流，不构成投资建议</div></footer>{roleModalOpen && <RoleSelectionModal onClose={() => setRoleModalOpen(false)} onSelect={(role) => { setSelectedRole(role); setRoleModalOpen(false); go("auth"); }}/>} {contactModal.open && <ContactModal contact={contactModal.contact} onClose={() => setContactModal({ open: false })}/>} {selectedProject && <ProjectModal project={selectedProject} onClose={() => setSelectedProject(undefined)}/>} {selectedArticle && <ArticleModal article={selectedArticle} onClose={() => setSelectedArticle(undefined)}/>}</div>;
 }

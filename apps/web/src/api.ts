@@ -12,6 +12,27 @@ export interface OwnedProject extends Project { reviewStatus: "pending" | "appro
 export interface BpRequest { id: string; projectId: string; projectName: string; bpFileId: string; purpose: string; status: "pending" | "approved" | "rejected"; createdAt: string; decidedAt: string | null; }
 export interface IncomingBpRequest extends BpRequest { requesterOrganizationId: string; requesterOrganizationName: string; }
 export interface MyContactRequest { id: string; targetRegion: string | null; organization: string; need: string; status: "new" | "contacted" | "progressing" | "completed" | "closed"; createdAt: string; }
+export type IdentitySubmissionType = "investor_thesis" | "fa_recommendation" | "government_demand";
+export type IdentitySubmissionStatus = "draft" | "pending" | "approved" | "rejected" | "archived";
+export interface IdentitySubmission {
+  id: string;
+  type: IdentitySubmissionType;
+  ownerOrganizationName: string;
+  title: string;
+  summary: string;
+  industry: string;
+  region: string;
+  stage: string | null;
+  financingRange: string | null;
+  details: Record<string, string>;
+  status: IdentitySubmissionStatus;
+  version: number;
+  rejectionReason: string | null;
+  submittedAt: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface Organization {
   id: string;
@@ -97,9 +118,9 @@ export const api = {
   contact: (contactId: string) => request<{ contact: GovernmentContact }>(`/api/government-contacts/${encodeURIComponent(contactId)}`),
   articles: (params: Pick<ListParams, "q" | "category" | "page" | "pageSize"> = {}) => request<{ articles: Article[]; pagination: Pagination }>(`/api/articles${queryString(params)}`),
   article: (slug: string) => request<{ article: Article }>(`/api/articles/${encodeURIComponent(slug)}`),
-  authConfig: () => request<{ emailRequired: boolean; captchaEnabled: boolean; emailVerificationEnabled: boolean; passwordResetEnabled: boolean }>("/api/auth/config"),
+  authConfig: () => request<{ emailRequired: boolean; captchaEnabled: boolean; emailVerificationEnabled: boolean; passwordResetEnabled: boolean; otpEnabled: boolean }>("/api/auth/config"),
   captcha: () => request<{ captchaId: string; image: string; expiresAt: string }>("/api/auth/captcha"),
-  register: (input: { email?: string; phone?: string; password: string; confirmPassword: string; role: AuthRole; organizationName?: string; contactName?: string; userName?: string; captchaId: string; captchaCode: string }) => request<{ account: { userId: string; organizationId: string; role: AuthRole; status: "pending" | "active" } }>("/api/auth/register", {
+  register: (input: { email?: string; phone?: string; password: string; confirmPassword: string; role: AuthRole; organizationName?: string; contactName?: string; userName?: string; captchaId: string; captchaCode: string; supabaseAccessToken?: string }) => request<{ account: { userId: string; organizationId: string; role: AuthRole; status: "pending" | "active" } }>("/api/auth/register", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
@@ -109,6 +130,8 @@ export const api = {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   }),
+  requestOtp: (input: { email: string; purpose: "register" | "login" | "recovery" }) => request<{ status: "sent"; expiresIn: number; resendAfter: number }>("/api/auth/otp/request", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
+  verifyOtp: (input: { email: string; token: string; purpose: "register" | "login" | "recovery" }) => request<{ status: "verified" | "authenticated"; email?: string; supabaseUserId?: string; supabaseAccessToken?: string | null; session?: string; actor?: AuthActor }>("/api/auth/otp/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
   changePassword: (input: { currentPassword: string; newPassword: string; confirmPassword: string }) => request<{ status: "updated" }>("/api/auth/password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
   updateProfile: (input: { displayName: string; email?: string; phone?: string }) => request<{ profile: { displayName: string; email: string | null; phone: string | null } }>("/api/auth/profile", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
   requestEmailVerification: () => request<{ status: string; expiresAt?: string; previewToken?: string }>("/api/auth/email-verification/request", { method: "POST" }),
@@ -131,6 +154,9 @@ export const api = {
   incomingBpRequests: () => request<{ requests: IncomingBpRequest[] }>("/api/me/incoming-bp-requests"),
   decideBpRequest: (requestId: string, decision: "approved" | "rejected") => request<{ request: { id: string; status: string } }>(`/api/bp-requests/${encodeURIComponent(requestId)}/decision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(decision === "approved" ? { decision, expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(), allowDownload: false } : { decision }) }),
   myContactRequests: () => request<{ requests: MyContactRequest[] }>("/api/me/contact-requests"),
+  myIdentitySubmissions: () => request<{ submissions: IdentitySubmission[] }>("/api/me/identity-submissions"),
+  submitIdentitySubmission: (input: { type: IdentitySubmissionType; title: string; summary: string; industry: string; region: string; stage?: string; financingRange?: string; details?: Record<string, string>; status?: "draft" | "pending" }) => request<{ submission: IdentitySubmission }>("/api/identity-submissions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
+  updateIdentitySubmission: (id: string, input: { title: string; summary: string; industry: string; region: string; stage?: string; financingRange?: string; details?: Record<string, string>; status?: "draft" | "pending" }) => request<{ submission: IdentitySubmission }>(`/api/identity-submissions/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
   submitProject: (input: { name: string; summary: string; industry: string; region: string; stage: string; financingRange: string; identityMode: "named" | "anonymous"; anonymousName?: string }) => request<{ project: { id: string; reviewStatus: string } }>("/api/projects", {
     method: "POST",
     headers: { "content-type": "application/json" },
