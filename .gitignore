@@ -22,3 +22,4 @@ output/playwright/
 .runtime/next-dev-*.log
 public/admin.css
 /old/_cleanup/
+/old/apps/next/public/admin.css
