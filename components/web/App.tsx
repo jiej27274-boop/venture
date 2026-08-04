@@ -782,30 +782,21 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
   const [otpEnabled, setOtpEnabled] = useState(false);
   const [otpCode, setOtpCode] = useState("");
   const [otpVerified, setOtpVerified] = useState(false);
-  const [supabaseAccessToken, setSupabaseAccessToken] = useState<string | undefined>();
+  const [emailVerificationToken, setEmailVerificationToken] = useState<string | undefined>();
   const [otpCooldown, setOtpCooldown] = useState(0);
   const [otpBusy, setOtpBusy] = useState(false);
   const [otpNotice, setOtpNotice] = useState("");
-  const [captcha, setCaptcha] = useState<{ captchaId: string; image: string } | null>(null);
-  const [captchaLoading, setCaptchaLoading] = useState(false);
   const [resetToken, setResetToken] = useState("");
   const [resetComplete, setResetComplete] = useState(false);
-  const [form, setForm] = useState({ userName: "", organization: "", contact: "", phone: "", email: "", password: "", confirm: "", captchaCode: "" });
-  const update = (key: keyof typeof form, value: string) => { setForm((current) => ({ ...current, [key]: value })); if (key === "email") { setOtpCode(""); setOtpVerified(false); setSupabaseAccessToken(undefined); setOtpNotice(""); } };
-  const refreshCaptcha = async () => {
-    setCaptchaLoading(true);
-    try { const next = await api.captcha(); setCaptcha({ captchaId: next.captchaId, image: next.image }); update("captchaCode", ""); }
-    catch { setError("验证码加载失败，请刷新页面重试。"); }
-    finally { setCaptchaLoading(false); }
-  };
+  const [form, setForm] = useState({ userName: "", organization: "", contact: "", phone: "", email: "", password: "", confirm: "" });
+  const update = (key: keyof typeof form, value: string) => { setForm((current) => ({ ...current, [key]: value })); if (key === "email") { setOtpCode(""); setOtpVerified(false); setEmailVerificationToken(undefined); setOtpNotice(""); } };
   useEffect(() => { void api.authConfig().then((config) => { setEmailRequired(config.emailRequired); setOtpEnabled(config.otpEnabled); }).catch(() => undefined); }, []);
-  useEffect(() => { if (mode === "register" && !captcha) void refreshCaptcha(); }, [mode, captcha]);
   useEffect(() => { if (!otpCooldown) return; const timer = window.setInterval(() => setOtpCooldown((current) => Math.max(0, current - 1)), 1000); return () => window.clearInterval(timer); }, [otpCooldown]);
   const requestOtp = async () => {
     if (!form.email) { setError("请先输入邮箱地址。"); return; }
     setOtpBusy(true); setError(""); setOtpNotice("");
-    try { await api.requestOtp({ email: form.email, purpose: mode === "register" ? "register" : "login" }); setOtpCooldown(60); setOtpCode(""); setOtpVerified(false); setOtpNotice("验证码已发送，请检查邮箱，5 分钟内有效。"); }
-    catch (reason) { const code = reason instanceof Error ? reason.message : "otp_delivery_failed"; setError(code === "supabase_auth_not_configured" ? "邮件验证码尚未配置 Supabase，请先配置项目密钥。" : "验证码发送失败，请稍后重试。"); }
+    try { const result = await api.requestOtp({ email: form.email, purpose: mode === "register" ? "register" : "login" }); setOtpCooldown(60); setOtpCode(result.previewToken ?? ""); setOtpVerified(false); setOtpNotice(result.previewToken ? "本地预览模式已生成验证码，可直接验证。" : "验证码已发送，请检查邮箱，5 分钟内有效。"); }
+    catch (reason) { setError(reason instanceof Error && reason.message === "otp_rate_limited" ? "验证码请求太频繁，请稍后再试。" : "验证码发送失败，请检查邮件配置后重试。"); }
     finally { setOtpBusy(false); }
   };
   const verifyEmailOtp = async () => {
@@ -813,18 +804,26 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
     setOtpBusy(true); setError(""); setOtpNotice("");
     try {
       const result = await api.verifyOtp({ email: form.email, token: otpCode, purpose: mode === "register" ? "register" : "login" });
-      if (mode === "register") { setSupabaseAccessToken(result.supabaseAccessToken ?? undefined); setOtpVerified(true); setOtpNotice("邮箱已验证，可以完成注册。"); }
+      if (mode === "register") { setEmailVerificationToken(result.emailVerificationToken ?? undefined); setOtpVerified(true); setOtpNotice("邮箱已验证，可以完成注册。"); }
       else if (result.session) { window.localStorage.setItem("venture_session", result.session); setSubmitted(true); }
-    } catch (reason) { setError(reason instanceof Error && reason.message === "account_pending" ? "账号正在等待管理员审核。" : "验证码错误或已过期，请重新获取。"); }
+      return result.emailVerificationToken;
+    } catch (reason) {
+      const code = reason instanceof Error ? reason.message : "";
+      setError(code === "otp_rate_limited" ? "验证码尝试太频繁，请稍后再试。" : code === "account_not_registered" ? "该邮箱尚未注册，请先注册账号。" : code === "account_pending" ? "账号正在等待管理员审核。" : code === "account_rejected" ? "该账号未通过审核，请联系管理员。" : code === "account_suspended" ? "该账号已被停用，请联系管理员。" : "邮箱验证码错误或已过期，请重新发送。");
+    }
     finally { setOtpBusy(false); }
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setSaving(true); setError("");
     try {
       if (mode === "register") {
-        if (!captcha) throw new Error("请先加载验证码");
-        if (otpEnabled && !otpVerified) throw new Error("请先验证邮箱验证码");
-        await api.register({ email: form.email || undefined, phone: form.phone || undefined, password: form.password, confirmPassword: form.confirm, role, organizationName: role === "user" ? undefined : form.organization, contactName: role === "user" ? undefined : form.contact, userName: role === "user" ? form.userName : undefined, captchaId: captcha.captchaId, captchaCode: form.captchaCode, supabaseAccessToken });
+        let verificationToken = emailVerificationToken;
+        let verificationCode: string | undefined;
+        if (otpEnabled && (!otpVerified || !verificationToken)) {
+          if (!/^\d{6}$/.test(otpCode)) throw new Error("email_verification_code_required");
+          verificationCode = otpCode;
+        }
+        await api.register({ email: form.email || undefined, phone: form.phone || undefined, password: form.password, confirmPassword: form.confirm, role, organizationName: role === "user" ? undefined : form.organization, contactName: role === "user" ? undefined : form.contact, userName: role === "user" ? form.userName : undefined, emailVerificationToken: verificationToken, emailVerificationCode: verificationCode });
       } else if (mode === "forgot") {
         if (!resetToken) {
           const result = await api.requestPasswordReset(form.email);
@@ -845,11 +844,10 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
       setSubmitted(true);
     } catch (reason) {
       const code = reason instanceof Error ? reason.message : "operation_failed";
-      setError(code === "invalid_captcha" ? "验证码错误或已过期，请重新输入。" : code === "identifier_taken" ? "手机号或邮箱已注册。" : code === "email_required" ? "请输入邮箱地址。" : code === "otp_delivery_failed" ? "验证码发送失败，请稍后重试。" : code);
-      if (code === "invalid_captcha") void refreshCaptcha();
+      setError(code === "otp_rate_limited" ? "验证码请求太频繁，请稍后再试。" : code === "email_verification_invalid" ? "邮箱验证码错误或已过期，请重新发送。" : code === "email_verification_required" || code === "email_verification_code_required" ? "请输入 6 位邮箱验证码。" : code === "identifier_taken" ? "手机号或邮箱已注册。" : code === "email_required" ? "请输入邮箱地址。" : code === "otp_delivery_failed" ? "验证码发送失败，请稍后重试。" : code === "account_not_registered" ? "该邮箱尚未注册，请先注册账号。" : code === "account_rejected" ? "该账号未通过审核，请联系管理员。" : code === "account_suspended" ? "该账号已被停用，请联系管理员。" : code);
     } finally { setSaving(false); }
   };
-  const switchMode = (next: "login" | "register" | "forgot") => { setMode(next); setLoginMethod("password"); setSubmitted(false); setError(""); setOtpNotice(""); setResetToken(""); setResetComplete(false); setOtpCode(""); setOtpVerified(false); setSupabaseAccessToken(undefined); if (next === "register") void refreshCaptcha(); };
+  const switchMode = (next: "login" | "register" | "forgot") => { setMode(next); setLoginMethod("password"); setSubmitted(false); setError(""); setOtpNotice(""); setResetToken(""); setResetComplete(false); setOtpCode(""); setOtpVerified(false); setEmailVerificationToken(undefined); };
   const selectedRole = roleOptions.find((item) => item.id === role);
   return (
     <main className="auth-page">
@@ -920,11 +918,6 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
               {mode === "register" && (
                 <>
                   <label>确认密码<input required minLength={6} type="password" value={form.confirm} onChange={(event) => update("confirm", event.target.value)} placeholder="再次输入密码"/></label>
-                  <label className="captcha-input">英文字母验证码<input required minLength={5} maxLength={5} value={form.captchaCode} onChange={(event) => update("captchaCode", event.target.value.toUpperCase())} placeholder="输入图片中的字母"/></label>
-                  <div className="captcha-box">
-                    <div className="captcha-image-wrap">{captcha ? <img src={captcha.image} alt="英文字母验证码"/> : <span>加载中</span>}</div>
-                    <button type="button" className="captcha-refresh" onClick={() => void refreshCaptcha()} disabled={captchaLoading} title="刷新验证码">↻</button>
-                  </div>
                 </>
               )}
               {error && <p className="auth-error">{error}</p>}

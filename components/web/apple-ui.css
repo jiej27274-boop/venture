@@ -949,8 +949,7 @@ body {
 }
 
 .site-shell.view-auth .auth-form input,
-.site-shell.view-auth .auth-form select,
-.site-shell .captcha-image-wrap {
+.site-shell.view-auth .auth-form select {
   border-color: #d8e3ef;
   border-radius: 11px;
   background: #f7f9fc;
