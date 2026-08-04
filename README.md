@@ -3,6 +3,10 @@ title: 创投智联
 description: 面向项目方、资本机构、FA 与政府招商部门的创投资源协同平台
 ---
 
+<p align="center">
+  <img src="assets/qifeng-capital-logo.png" alt="启峰创投" width="320">
+</p>
+
 # 创投智联
 
 创投智联是一套连接项目、资本、FA、政府招商部门与产业资源的创投协同平台。
@@ -10,6 +14,12 @@ description: 面向项目方、资本机构、FA 与政府招商部门的创投�
 平台围绕“发现机会、了解主体、发起对接、推进授权、留下记录”展开，帮助不同角色在同一个信息和协作空间内完成项目发现、机构筛选、区域招商和内容阅读。
 
 当前版本是一个可持续迭代的产品型 MVP，已经具备用户端、管理后台、API 服务和权限领域包的基础能力。
+
+## 平台预览
+
+<p align="center">
+  <img src="assets/qifeng-capital-platform-preview.png" alt="创投智联平台预览" width="960">
+</p>
 
 ## 平台服务对象
 
