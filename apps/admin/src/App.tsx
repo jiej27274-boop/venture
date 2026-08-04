@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, type AdminArticle, type AuditLog, type AuthAccount, type AuthAccountStatus, type ContactRequest, type GovernmentContact, type Overview, type ProjectSummary } from "./api.ts";
+import qifengLogoUrl from "./qifeng-capital-logo.png";
 
 type View = "overview" | "reviews" | "projects" | "government" | "leads" | "articles" | "audit";
 
@@ -404,7 +405,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">V</span><div><b>创投智联</b><small>VENTURE LINK</small></div></div>
+        <div className="brand"><img className="qifeng-logo" src={qifengLogoUrl} alt="启峰创投" /></div>
         <div className="workspace"><span>当前工作台</span><b>平台总管理后台</b></div>
         <nav>{navigation.map((item) => <button key={item.id} className={activeView === item.id ? "active" : ""} onClick={() => setActiveView(item.id)}><span>{item.label}</span>{item.badge && <em>{item.badge}</em>}</button>)}</nav>
         <div className="sidebar-foot"><span className="status-dot"/><div><b>服务运行正常</b><small>本地 MVP · SQLite</small></div></div>
