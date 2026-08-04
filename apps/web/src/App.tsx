@@ -16,8 +16,9 @@ import {
   type Project,
 } from "./api.ts";
 import qifengLogoUrl from "./qifeng-capital-logo.png";
+import { IndustryMapPage, ServicesPage } from "./portalPages.tsx";
 
-type View = "home" | "projects" | "organizations" | "institutions" | "government" | "research" | "events" | "articles" | "auth" | "account";
+type View = "home" | "projects" | "organizations" | "institutions" | "government" | "research" | "events" | "articles" | "industries" | "services" | "auth" | "account";
 
 const navItems: Array<{ id: View; label: string }> = [
   { id: "home", label: "首页" },
@@ -28,6 +29,8 @@ const navItems: Array<{ id: View; label: string }> = [
   { id: "research", label: "研究报告" },
   { id: "events", label: "创投电报" },
 ];
+
+const secondaryViews: View[] = ["industries", "services"];
 
 type EditorialKind = "research" | "events";
 type EditorialSection = { index: string; label: string; title: string; body: string };
@@ -212,7 +215,7 @@ function OrganizationCard({ organization, favorite, onToggleFavorite }: { organi
   );
 }
 
-type SearchTarget = Exclude<View, "home" | "auth" | "account" | "articles" | "research" | "events" | "institutions">;
+type SearchTarget = "projects" | "organizations" | "government";
 type SearchMatch = { id: string; target: SearchTarget; title: string; meta: string };
 
 const searchTargetLabels: Record<SearchTarget, string> = {
@@ -397,10 +400,20 @@ function PortalDataDashboard({ projects, organizations, go }: {
       </article>
     </div>
     <aside className="portal-dashboard-side">
-      <article className="portal-panel portal-industries"><div className="portal-panel-heading"><div><span>INDUSTRY MAP</span><h2>行业图谱</h2></div><button onClick={() => go("projects")}>更多&nbsp;›</button></div><div className="portal-industry-grid">{industryCounts.map(([industry, count]) => <button key={industry} onClick={() => go("projects", industry)}><span className="portal-industry-dot" />{industry}<b>{count}</b></button>)}{industryCounts.length === 0 && <div className="portal-empty">暂无行业数据</div>}</div></article>
+      <article className="portal-panel portal-industries"><div className="portal-panel-heading"><div><span>INDUSTRY MAP</span><h2>行业图谱</h2></div><button onClick={() => go("industries")}>进入图谱&nbsp;›</button></div><div className="portal-industry-grid">{industryCounts.map(([industry, count]) => <button key={industry} onClick={() => go("projects", industry)}><span className="portal-industry-dot" />{industry}<b>{count}</b></button>)}{industryCounts.length === 0 && <div className="portal-empty">暂无行业数据</div>}</div></article>
       <article className="portal-panel portal-ranking"><div className="portal-panel-heading"><div><span>NETWORK</span><h2>入驻机构</h2></div><button onClick={() => go("organizations")}>更多&nbsp;›</button></div><ol>{rankedOrganizations.map((organization, index) => <li key={organization.id}><em>{index + 1}</em><span><b>{organization.name}</b><small>{organization.region} · {organization.tagline}</small></span><i>{organization.type === "investor" ? "投资机构" : organization.type === "fa" ? "FA 机构" : "政府招商"}</i></li>)}</ol>{rankedOrganizations.length === 0 && <div className="portal-empty">暂无机构数据</div>}</article>
       <article className="portal-panel portal-news"><div className="portal-panel-heading"><div><span>VENTURE TELEGRAPH</span><h2>创投电报</h2></div><button onClick={() => go("events")}>进入电报&nbsp;›</button></div><div className="portal-event-note"><b>{editorialStories.events.title}</b><p>{editorialStories.events.lead}</p><button onClick={() => go("events")}>查看创投电报 <span aria-hidden="true">→</span></button></div></article>
     </aside>
+  </section>;
+}
+
+function PortalToolsGateway({ go }: { go: (view: View) => void }) {
+  return <section className="section-wrap portal-tools-gateway" aria-label="平台工具">
+    <div className="portal-tools-heading"><span>PLATFORM TOOLS</span><h2>继续探索</h2><p>从产业结构到平台服务，沿着你关心的方向继续深入。</p></div>
+    <div className="portal-tools-grid">
+      <button className="portal-tool-card portal-tool-industry" type="button" onClick={() => go("industries")}><span className="portal-tool-index">01</span><span><b>行业图谱</b><small>查看行业热度与产业链方向</small></span><i aria-hidden="true">→</i></button>
+      <button className="portal-tool-card portal-tool-services" type="button" onClick={() => go("services")}><span className="portal-tool-index">02</span><span><b>产品服务</b><small>从项目发现走向资源对接</small></span><i aria-hidden="true">→</i></button>
+    </div>
   </section>;
 }
 
@@ -416,6 +429,7 @@ function HomeView({ projects, organizations, contacts, go, openProject, favorite
   return <>
     <PortalHero projects={projects} organizations={organizations} contacts={contacts} go={go}/>
     <EditorialGateway go={go}/>
+    <PortalToolsGateway go={go}/>
     <PortalDataDashboard projects={projects} organizations={organizations} go={go}/>
     <section className="section-wrap home-section">
       <div className="section-heading-row reveal"><SectionTitle eyebrow="FEATURED PROJECTS" title="精选项目" description="公开摘要经过审核，敏感项目支持匿名展示。"/><button className="outline" onClick={() => go("projects")}>查看全部项目</button></div>
@@ -1029,7 +1043,7 @@ export default function App() {
   const [recentViews, setRecentViews] = useState<RecentView[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProject, setSelectedProject] = useState<Project>(); const [selectedArticle, setSelectedArticle] = useState<Article>(); const [selectedTelegraph, setSelectedTelegraph] = useState<TelegraphEntry>(); const [contactModal, setContactModal] = useState<{ open: boolean; contact?: GovernmentContact }>({ open: false }); const [roleModalOpen, setRoleModalOpen] = useState(false); const [selectedRole, setSelectedRole] = useState<RoleId>();
-  useEffect(() => { const onHash = () => { const next = window.location.hash.slice(1) as View; if (next === "auth" || next === "account" || navItems.some((item) => item.id === next)) setView(next); }; window.addEventListener("hashchange", onHash); return () => window.removeEventListener("hashchange", onHash); }, []);
+  useEffect(() => { const onHash = () => { const next = window.location.hash.slice(1) as View; if (next === "auth" || next === "account" || secondaryViews.includes(next) || navItems.some((item) => item.id === next)) setView(next); }; window.addEventListener("hashchange", onHash); return () => window.removeEventListener("hashchange", onHash); }, []);
   useEffect(() => { Promise.all([api.projects({ page: 1, pageSize: 50 }), api.organizations({ page: 1, pageSize: 50 }), api.contacts({ page: 1, pageSize: 50 }), api.articles({ page: 1, pageSize: 50 })]).then(([p, o, c, a]) => { setProjects(p.projects); setOrganizations(o.organizations); setContacts(c.contacts); setArticles(a.articles); }).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false)); }, []);
   useEffect(() => { if (!window.localStorage.getItem("venture_session")) return; api.favorites().then(({ favorites }) => setFavoriteKeys(new Set(favorites.map((favorite) => `${favorite.resourceType}:${favorite.resourceId}`)))).catch(() => undefined); }, []);
   useEffect(() => { if (!window.localStorage.getItem("venture_session")) return; api.recentViews().then(({ views }) => setRecentViews(views)).catch(() => undefined); }, [view]);
@@ -1072,7 +1086,9 @@ export default function App() {
   if (view === "research") content = <EditorialView kind="research" go={go}/>;
   if (view === "events") content = selectedTelegraph ? <EditorialView kind="events" story={telegraphEntryToStory(selectedTelegraph)} go={go} backView="events" backLabel="返回创投电报"/> : <TelegraphView entries={telegraphEntries} go={go} openEntry={openTelegraph}/>;
   if (view === "articles") content = <ArticlesView articles={articles} openArticle={openArticle} initialQuery={searchQuery} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
+  if (view === "industries") content = <IndustryMapPage onBackHome={() => go("home")}/>;
+  if (view === "services") content = <ServicesPage onBackHome={() => go("home")} onNavigate={(destination) => { if (destination === "auth") setSelectedRole("user"); go(destination); }}/>;
   if (view === "auth") content = <AuthView initialRole={selectedRole} go={go}/>;
   if (view === "account") content = <><AccountView go={go}/><NotificationsStrip/><AccountProfileStrip/><EmailVerificationStrip/><AccountSecurityStrip/><MyProjectsStrip/><MyBpRequestsStrip/><IncomingBpRequestsStrip/><MyContactRequestsStrip/><RecentViewsStrip views={recentViews} projects={projects} articles={articles} go={go}/></>;
-  return <div className={`site-shell view-${view}`}><header className="site-header"><div className="header-inner"><button className="brand" onClick={() => go("home")}><QifengLogo /></button><button className="menu-button" aria-label="打开导航" onClick={() => setMenuOpen(!menuOpen)}><i/><i/><i/></button><nav className={menuOpen ? "open" : ""}>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => go(item.id)}>{item.label}</button>)}</nav><GlobalSearch projects={projects} organizations={organizations} contacts={contacts} onSearch={handleSearch}/><button className="header-cta" onClick={() => { setSelectedRole("user"); go("auth"); }}>登录注册</button></div></header>{loading ? <div className="loading">正在连接创投资源…</div> : error ? <div className="loading error">载入失败：{error}</div> : content}<footer><div className="section-wrap footer-grid"><div><div className="footer-brand"><QifengLogo /></div><p>连接项目、资本与政府产业资源。</p></div><div><b>平台导航</b><button onClick={() => go("projects")}>投融资</button><button onClick={() => go("organizations")}>公司</button><button onClick={() => go("institutions")}>创投机构</button><button onClick={() => go("government")}>政府对接</button><button onClick={() => go("research")}>研究报告</button><button onClick={() => go("events")}>创投电报</button></div><div><b>安全原则</b><span>主体认证</span><span>最小权限</span><span>访问留痕</span></div><div><b>当前版本</b><span>试点 MVP</span><span>线下登记与对接</span><span>正式上线需备案域名</span></div></div><div className="footer-bottom">© 2026 创投智联 · 本平台信息仅供交流，不构成投资建议</div></footer>{roleModalOpen && <RoleSelectionModal onClose={() => setRoleModalOpen(false)} onSelect={(role) => { setSelectedRole(role); setRoleModalOpen(false); go("auth"); }}/>} {contactModal.open && <ContactModal contact={contactModal.contact} onClose={() => setContactModal({ open: false })}/>} {selectedProject && <ProjectModal project={selectedProject} onClose={() => setSelectedProject(undefined)}/>} {selectedArticle && <ArticleModal article={selectedArticle} onClose={() => setSelectedArticle(undefined)}/>}</div>;
+  return <div className={`site-shell view-${view}`}><header className="site-header"><div className="header-inner"><button className="brand" onClick={() => go("home")}><QifengLogo /></button><button className="menu-button" aria-label="打开导航" onClick={() => setMenuOpen(!menuOpen)}><i/><i/><i/></button><nav className={menuOpen ? "open" : ""}>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => go(item.id)}>{item.label}</button>)}</nav><GlobalSearch projects={projects} organizations={organizations} contacts={contacts} onSearch={handleSearch}/><button className="header-cta" onClick={() => { setSelectedRole("user"); go("auth"); }}>登录注册</button></div></header>{loading ? <div className="loading">正在连接创投资源…</div> : error ? <div className="loading error">载入失败：{error}</div> : content}<footer><div className="section-wrap footer-grid"><div><div className="footer-brand"><QifengLogo /></div><p>连接项目、资本与政府产业资源。</p></div><div><b>平台导航</b><button onClick={() => go("projects")}>投融资</button><button onClick={() => go("organizations")}>公司</button><button onClick={() => go("institutions")}>创投机构</button><button onClick={() => go("government")}>政府对接</button><button onClick={() => go("research")}>研究报告</button><button onClick={() => go("events")}>创投电报</button><button onClick={() => go("industries")}>行业图谱</button><button onClick={() => go("services")}>产品服务</button></div><div><b>安全原则</b><span>主体认证</span><span>最小权限</span><span>访问留痕</span></div><div><b>当前版本</b><span>试点 MVP</span><span>线下登记与对接</span><span>正式上线需备案域名</span></div></div><div className="footer-bottom">© 2026 创投智联 · 本平台信息仅供交流，不构成投资建议</div></footer>{roleModalOpen && <RoleSelectionModal onClose={() => setRoleModalOpen(false)} onSelect={(role) => { setSelectedRole(role); setRoleModalOpen(false); go("auth"); }}/>} {contactModal.open && <ContactModal contact={contactModal.contact} onClose={() => setContactModal({ open: false })}/>} {selectedProject && <ProjectModal project={selectedProject} onClose={() => setSelectedProject(undefined)}/>} {selectedArticle && <ArticleModal article={selectedArticle} onClose={() => setSelectedArticle(undefined)}/>}</div>;
 }
