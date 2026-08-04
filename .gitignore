@@ -1,6 +1,7 @@
 node_modules/
 **/.next/
 .next-before-build/
+.next-stale-*/
 .pnpm-store/
 *.tsbuildinfo
 dist/
@@ -17,6 +18,7 @@ data/uploads/
 .env
 .DS_Store
 *.log
+venture-baota-deploy*.zip
 output/playwright/
 .runtime/chrome-*/
 .runtime/next-dev-*.log
