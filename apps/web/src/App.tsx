@@ -28,6 +28,8 @@ const navItems: Array<{ id: View; label: string }> = [
   { id: "government", label: "政府对接" },
   { id: "research", label: "研究报告" },
   { id: "events", label: "创投电报" },
+  { id: "industries", label: "行业图谱" },
+  { id: "services", label: "产品服务" },
 ];
 
 const secondaryViews: View[] = ["industries", "services"];
@@ -349,28 +351,6 @@ function PortalHero({ projects, organizations, contacts, go }: {
   </>;
 }
 
-function EditorialGateway({ go }: { go: (view: View) => void }) {
-  return <section className="section-wrap editorial-gateway" aria-label="研究与事件">
-    <div className="editorial-gateway-heading">
-      <span>EDITORIAL DESK</span>
-      <h2>研究与事件</h2>
-      <p>把产业判断和一线变化放在一起看，给项目、资本与地方合作多一点背景。</p>
-    </div>
-    <div className="editorial-gateway-grid">
-      {(["research", "events"] as const).map((kind, index) => {
-        const story = editorialStories[kind];
-        return <button className={`editorial-gateway-card editorial-gateway-${kind}`} key={kind} onClick={() => go(kind)}>
-          <span className="editorial-gateway-index">{String(index + 1).padStart(2, "0")}</span>
-          <span className="editorial-gateway-label">{story.navLabel}</span>
-          <h3>{story.title}</h3>
-          <p>{story.subtitle}</p>
-          <b>进入专题 <span aria-hidden="true">→</span></b>
-        </button>;
-      })}
-    </div>
-  </section>;
-}
-
 function PortalDataDashboard({ projects, organizations, go }: {
   projects: Project[];
   organizations: Organization[];
@@ -407,16 +387,6 @@ function PortalDataDashboard({ projects, organizations, go }: {
   </section>;
 }
 
-function PortalToolsGateway({ go }: { go: (view: View) => void }) {
-  return <section className="section-wrap portal-tools-gateway" aria-label="平台工具">
-    <div className="portal-tools-heading"><span>PLATFORM TOOLS</span><h2>继续探索</h2><p>从产业结构到平台服务，沿着你关心的方向继续深入。</p></div>
-    <div className="portal-tools-grid">
-      <button className="portal-tool-card portal-tool-industry" type="button" onClick={() => go("industries")}><span className="portal-tool-index">01</span><span><b>行业图谱</b><small>查看行业热度与产业链方向</small></span><i aria-hidden="true">→</i></button>
-      <button className="portal-tool-card portal-tool-services" type="button" onClick={() => go("services")}><span className="portal-tool-index">02</span><span><b>产品服务</b><small>从项目发现走向资源对接</small></span><i aria-hidden="true">→</i></button>
-    </div>
-  </section>;
-}
-
 function HomeView({ projects, organizations, contacts, go, openProject, favoriteKeys, onToggleFavorite }: {
   projects: Project[];
   organizations: Organization[];
@@ -428,8 +398,6 @@ function HomeView({ projects, organizations, contacts, go, openProject, favorite
 }) {
   return <>
     <PortalHero projects={projects} organizations={organizations} contacts={contacts} go={go}/>
-    <EditorialGateway go={go}/>
-    <PortalToolsGateway go={go}/>
     <PortalDataDashboard projects={projects} organizations={organizations} go={go}/>
     <section className="section-wrap home-section">
       <div className="section-heading-row reveal"><SectionTitle eyebrow="FEATURED PROJECTS" title="精选项目" description="公开摘要经过审核，敏感项目支持匿名展示。"/><button className="outline" onClick={() => go("projects")}>查看全部项目</button></div>
