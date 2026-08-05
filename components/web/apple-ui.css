@@ -218,6 +218,10 @@ body {
   font-size: 12px;
 }
 
+.site-shell .public-account-menu {
+  order: 3;
+}
+
 .site-shell .header-cta:hover,
 .site-shell .primary:hover {
   background: var(--apple-blue-dark);
