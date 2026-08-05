@@ -49,6 +49,7 @@ const navItems: Array<{ id: View; label: string }> = [
 const secondaryViews: View[] = ["industries", "services"];
 
 const viewToPath: Record<View, string> = { home: "/", projects: "/projects", organizations: "/organizations", institutions: "/institutions", government: "/government", research: "/research", events: "/events", articles: "/articles", industries: "/industries", services: "/services", auth: "/auth", account: "/account" };
+const pathToView: Record<string, View> = { '/': 'home', '/projects': 'projects', '/organizations': 'organizations', '/institutions': 'institutions', '/government': 'government', '/research': 'research', '/events': 'events', '/articles': 'articles', '/industries': 'industries', '/services': 'services', '/auth': 'auth', '/account': 'account', '/market': 'projects', '/reports': 'research', '/industry': 'industries', '/login': 'auth' };
 
 type EditorialKind = "research" | "events";
 type EditorialSection = { index: string; label: string; title: string; body: string };
@@ -516,7 +517,6 @@ const institutionTypeOptions = ["全部", "孵化基金", "科研院所基金背
 const institutionSidebarItems = ["VC/PE", "大企业创投", "国资投资机构", "LP库"];
 const institutionSidebarMoreItems = ["基金管理人", "基金", "专题数据", "近期活跃CVC机构", "近期活跃LP", "近期活跃上市公司LP", "正在募集基金", "S基金"];
 function InstitutionsView({ organizations, favoriteKeys, onToggleFavorite }: { organizations: Organization[]; favoriteKeys: Set<string>; onToggleFavorite: (type: FavoriteResourceType, id: string) => void }) {
-  const [institutionType, setInstitutionType] = useState<"" | "investor" | "fa">("");
   const [kind, setKind] = useState("");
   const [industry, setIndustry] = useState("");
   const [region, setRegion] = useState<"" | "中国" | "海外">("");
@@ -533,13 +533,16 @@ function InstitutionsView({ organizations, favoriteKeys, onToggleFavorite }: { o
   const industryAliases: Record<string, string[]> = { "智能制造": ["智能制造", "先进制造", "机器人工"], "消费": ["消费", "消费科技"] };
   const industryMatches = (organization: Organization) => !industry || industry === "全部" || organization.focus.some((value) => (industryAliases[industry] ?? [industry]).some((alias) => value.includes(alias) || alias.includes(value)));
   const regionMatches = (organization: Organization) => !region || (region === "中国" ? !organization.region.includes("海外") : organization.region.includes("海外"));
-  const kindMatches = (organization: Organization) => {
-    if (!kind || kind === "全部") return true;
-    if (kind === "VC/PE") return organization.institutionKind === "VC" || organization.institutionKind === "PE";
-    return organization.institutionKind === kind;
+  const kindPredicate = (value: string) => (organization: Organization) => {
+    if (!value || value === "全部" || value === "基金" || value === "专题数据") return true;
+    if (value === "VC/PE" || value === "基金管理人" || value === "正在募集基金") return organization.institutionKind === "VC" || organization.institutionKind === "PE";
+    if (value === "近期活跃CVC机构") return organization.institutionKind === "大企业创投";
+    if (value === "近期活跃LP" || value === "近期活跃上市公司LP") return organization.institutionKind === "LP";
+    if (value === "S基金") return organization.institutionKind === "二级市场基金";
+    return organization.institutionKind === value;
   };
+  const kindMatches = kindPredicate(kind);
   const filtered = institutionOrganizations.filter((organization) =>
-    (!institutionType || organization.type === institutionType) &&
     kindMatches(organization) &&
     industryMatches(organization) &&
     regionMatches(organization) &&
@@ -551,25 +554,15 @@ function InstitutionsView({ organizations, favoriteKeys, onToggleFavorite }: { o
     (!normalizedLocation || organization.region.toLowerCase().includes(normalizedLocation)),
   );
   const kindForOption: Record<string, string> = { "全部": "", "孵化基金": "孵化基金", "科研院所基金背景": "科研院所基金背景", "天使基金": "天使基金", "VC": "VC", "PE": "PE", "金融服务机构（FA/券商/保险/银行）": "金融服务机构", "二级市场基金": "二级市场基金", "家族办公室": "家族办公室", "影响力投资": "影响力投资" };
-  const chooseKind = (value: string) => {
-    const next = kindForOption[value] ?? "";
-    setKind(next);
-    if (value === "金融服务机构（FA/券商/保险/银行）") setInstitutionType("fa");
-    else if (value === "VC" || value === "PE") setInstitutionType("investor");
-    else setInstitutionType("");
-  };
-  const clearFilters = () => { setInstitutionType(""); setKind(""); setIndustry(""); setRegion(""); setFundCurrency(""); setInvestmentStage(""); setLocationQuery(""); setFoundedQuery(""); setStageQuery(""); setEsgOnly(false); };
-  const sidebarPick = (item: string) => {
-    if (item === "VC/PE") { setKind("VC/PE"); setInstitutionType("investor"); }
-    else if (item === "大企业创投") { setKind("大企业创投"); setInstitutionType(""); }
-    else if (item === "国资投资机构") { setKind("国资投资机构"); setInstitutionType(""); }
-    else { setKind("LP"); setInstitutionType(""); }
-  };
-  const moreKindMap: Record<string, string> = { "基金管理人": "VC", "基金": "全部", "专题数据": "全部", "近期活跃CVC机构": "大企业创投", "近期活跃LP": "LP", "近期活跃上市公司LP": "LP", "正在募集基金": "VC", "S基金": "二级市场基金" };
-  const countByKind = (value: string) => value === "VC/PE" ? institutionOrganizations.filter((organization) => organization.institutionKind === "VC" || organization.institutionKind === "PE").length : value === "全部" ? institutionOrganizations.length : institutionOrganizations.filter((organization) => organization.institutionKind === value).length;
-  const institutionTitle = kind === "VC/PE" ? "VC/PE 机构" : kind ? kind : institutionType === "fa" ? "FA 机构" : "VC/PE 机构";
+  const sidebarKind: Record<string, string> = { "VC/PE": "VC/PE", "大企业创投": "大企业创投", "国资投资机构": "国资投资机构", "LP库": "LP" };
+  const moreSidebarKind: Record<string, string> = { "基金管理人": "基金管理人", "基金": "基金", "专题数据": "专题数据", "近期活跃CVC机构": "近期活跃CVC机构", "近期活跃LP": "近期活跃LP", "近期活跃上市公司LP": "近期活跃上市公司LP", "正在募集基金": "正在募集基金", "S基金": "S基金" };
+  const chooseKind = (value: string) => setKind(kindForOption[value] ?? "");
+  const clearFilters = () => { setKind(""); setIndustry(""); setRegion(""); setFundCurrency(""); setInvestmentStage(""); setLocationQuery(""); setFoundedQuery(""); setStageQuery(""); setEsgOnly(false); };
+  const countByKind = (value: string) => institutionOrganizations.filter(kindPredicate(value)).length;
+  const kindLabels: Record<string, string> = { "VC/PE": "VC/PE 机构", "基金管理人": "基金管理人", "基金": "基金机构", "专题数据": "专题数据", "近期活跃CVC机构": "近期活跃CVC机构", "近期活跃LP": "近期活跃LP", "近期活跃上市公司LP": "近期活跃上市公司LP", "正在募集基金": "正在募集基金", "S基金": "S基金", "金融服务机构": "FA 机构", "大企业创投": "大企业创投", "国资投资机构": "国资投资机构", "LP": "LP 机构", "孵化基金": "孵化基金", "科研院所基金背景": "科研院所基金背景", "天使基金": "天使基金", "VC": "VC 机构", "PE": "PE 机构", "二级市场基金": "二级市场基金", "家族办公室": "家族办公室", "影响力投资": "影响力投资" };
+  const institutionTitle = kind ? (kindLabels[kind] ?? kind) : "全部机构";
   return <main className="page institution-directory-page"><section className="section-wrap institution-directory-shell"><div className="institution-directory-layout">
-    <aside className="institution-sidebar" aria-label="创投机构分类导航"><div className="institution-sidebar-heading"><span>INSTITUTION INDEX</span><h1>创投机构</h1><p>按机构类型和投资偏好浏览。</p></div><nav className="institution-sidebar-nav">{institutionSidebarItems.map((item) => { const activeKey = item === "VC/PE" ? "VC/PE" : item === "大企业创投" ? "大企业创投" : item === "国资投资机构" ? "国资投资机构" : "LP"; return <button type="button" key={item} className={kind === activeKey ? "active" : ""} onClick={() => sidebarPick(item)}><StatIcon name={item === "VC/PE" ? "institution" : item === "大企业创投" ? "company" : "industry"}/><span className="institution-sidebar-item-label">{item}</span><small>{countByKind(activeKey)}</small></button>; })}<div className="institution-sidebar-divider"/>{institutionSidebarMoreItems.map((item) => <button type="button" key={item} className={kind === moreKindMap[item] ? "active" : ""} onClick={() => { setKind(moreKindMap[item]); setInstitutionType(""); }}><StatIcon name="institution"/><span className="institution-sidebar-item-label">{item}</span></button>)}</nav><div className="institution-sidebar-note">机构数据来自公开信息与平台核验，点击分类即可筛选。</div></aside>
+    <aside className="institution-sidebar" aria-label="创投机构分类导航"><div className="institution-sidebar-heading"><span>INSTITUTION INDEX</span><h1>创投机构</h1><p>按机构类型和投资偏好浏览。</p></div><nav className="institution-sidebar-nav">{institutionSidebarItems.map((item) => <button type="button" key={item} className={kind === sidebarKind[item] ? "active" : ""} onClick={() => setKind(sidebarKind[item])}><StatIcon name={item === "VC/PE" ? "institution" : item === "大企业创投" ? "company" : "industry"}/><span className="institution-sidebar-item-label">{item}</span><small>{countByKind(sidebarKind[item])}</small></button>)}<div className="institution-sidebar-divider"/>{institutionSidebarMoreItems.map((item) => <button type="button" key={item} className={kind === moreSidebarKind[item] ? "active" : ""} onClick={() => setKind(moreSidebarKind[item])}><StatIcon name="institution"/><span className="institution-sidebar-item-label">{item}</span></button>)}</nav><div className="institution-sidebar-note">机构数据来自公开信息与平台核验，点击分类即可筛选。</div></aside>
     <div className="institution-workspace"><div className="institution-filter-panel"><div className="institution-filter-row"><span className="institution-filter-label">机构类型</span><div className="institution-filter-options">{institutionTypeOptions.map((value) => <button type="button" key={value} className={(kindForOption[value] ?? "") === kind ? "active" : ""} onClick={() => chooseKind(value)}>{value}</button>)}</div></div><div className="institution-filter-row"><span className="institution-filter-label">投资领域</span><div className="institution-filter-options">{companyIndustryOptions.map((value, index) => <button type="button" key={value} className={(!industry && index === 0) || industry === value ? "active" : ""} onClick={() => setIndustry(index === 0 ? "" : value)}>{value}</button>)}</div></div><div className="institution-filter-row"><span className="institution-filter-label">机构地区</span><div className="institution-filter-options">{["全部", "中国", "海外"].map((value) => <button type="button" key={value} className={(!region && value === "全部") || region === value ? "active" : ""} onClick={() => setRegion(value === "全部" ? "" : value as "中国" | "海外")}>{value}</button>)}</div></div><div className="institution-filter-row institution-filter-row-last"><span className="institution-filter-label">其他指标</span><div className="institution-other-filters"><label><span>基金币种</span><Dropdown className="institution-dropdown" ariaLabel="选择基金币种" value={fundCurrency} onChange={setFundCurrency} options={[{ value: "", label: "请选择" }, { value: "人民币", label: "人民币" }, { value: "美元", label: "美元" }]}/></label><label><span>投资阶段</span><Dropdown className="institution-dropdown" ariaLabel="选择投资阶段" value={investmentStage} onChange={setInvestmentStage} options={[{ value: "", label: "请选择" }, { value: "早期", label: "早期" }, { value: "成长期", label: "成长期" }, { value: "成熟期", label: "成熟期" }]}/></label><label><span>成立时间</span><input value={foundedQuery} onChange={(event) => setFoundedQuery(event.target.value)} placeholder="输入成立年份，如 2015" aria-label="机构成立时间"/></label><label><span>投资时间</span><input value={stageQuery} onChange={(event) => setStageQuery(event.target.value)} placeholder="输入投资阶段，如 早期" aria-label="机构投资时间"/></label><label className="institution-location-field"><span>投资项目所在地</span><input value={locationQuery} onChange={(event) => setLocationQuery(event.target.value)} placeholder="请输入地区名称" aria-label="投资项目所在地"/></label><label className="institution-esg-field"><span>ESG机构</span><input type="checkbox" checked={esgOnly} onChange={(event) => setEsgOnly(event.target.checked)} aria-label="ESG机构"/></label></div></div></div>
       <section className="institution-results-panel"><div className="institution-results-heading"><div><div className="institution-results-title"><h2>{institutionTitle}</h2><span>{filtered.length} 家结果</span></div><p>公开展示已完成基础核验的创投机构信息</p></div><span className="institution-results-status"><i/>已核验数据</span></div><div className="institution-table-wrap"><table className="institution-table"><thead><tr><th className="institution-check-col">对比</th><th className="institution-index-col">序号</th><th>机构名称</th><th>机构简介</th><th>已投公司数</th><th>投资细分赛道数</th><th>IPO公司数</th><th>投资事件数</th><th>总部所在地</th><th>成立时间</th><th className="institution-action-col">收藏</th></tr></thead><tbody>{filtered.map((organization, index) => <tr key={organization.id}><td className="institution-check-col"><input type="checkbox" aria-label={"选择" + organization.name}/></td><td className="institution-index-col">{index + 1}</td><td><div className="institution-name-cell"><div className={"institution-table-mark " + organization.type}>{organization.name.slice(0, 1)}</div><div><strong>{organization.name}</strong><small>{organization.institutionKind || (organization.type === "fa" ? "FA 机构" : "VC/PE")}</small></div></div></td><td className="institution-tagline-cell">{organization.tagline}</td><td>{organization.investedCount ?? "—"}</td><td>{organization.focus.length}</td><td>{organization.ipoCount ?? "—"}</td><td>{organization.dealCount ?? "—"}</td><td>{organization.region}</td><td>{organization.foundedYear ?? "—"}</td><td className="institution-action-col"><FavoriteButton active={favoriteKeys.has("organization:" + organization.id)} onClick={() => onToggleFavorite("organization", organization.id)}/></td></tr>)}</tbody></table>{filtered.length === 0 && <div className="institution-empty"><strong>没有匹配的机构</strong><p>调整机构类型、投资领域、地区或所在地后再试。</p><button className="outline" onClick={clearFilters}>清除筛选</button></div>}</div></section></div>
   </div></section></main>;
@@ -1289,8 +1282,8 @@ function WorkspaceProjectPublisher({ onSaved }: { onSaved: () => void }) {
 }
 
 export default function App({ projectId, onLeaveDetail }: { projectId?: string; onLeaveDetail?: () => void }) {
-  useEffect(() => { if (!projectId && window.location.pathname !== "/") window.history.replaceState({}, "", `/${window.location.hash}`); }, []);
-  const [view, setView] = useState<View>(() => (window.location.hash.slice(1) as View) || "home");
+
+  const [view, setView] = useState<View>(() => (window.location.hash.slice(1) as View) || pathToView[window.location.pathname] || 'home');
   const [projects, setProjects] = useState<Project[]>([]); const [organizations, setOrganizations] = useState<Organization[]>([]); const [contacts, setContacts] = useState<GovernmentContact[]>([]); const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [menuOpen, setMenuOpen] = useState(false);
   const [publicActor, setPublicActor] = useState<AuthActor | null>(null);
@@ -1299,7 +1292,7 @@ export default function App({ projectId, onLeaveDetail }: { projectId?: string; 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedArticle, setSelectedArticle] = useState<Article>(); const [selectedTelegraph, setSelectedTelegraph] = useState<TelegraphEntry>(); const [contactModal, setContactModal] = useState<{ open: boolean; contact?: GovernmentContact }>({ open: false }); const [roleModalOpen, setRoleModalOpen] = useState(false); const [selectedRole, setSelectedRole] = useState<RoleId>();
   useEffect(() => { if (projectId) setView("projects"); }, [projectId]);
-  useEffect(() => { const onHash = () => { const next = window.location.hash.slice(1) as View; if (next === "auth" || next === "account" || secondaryViews.includes(next) || navItems.some((item) => item.id === next)) setView(next); }; window.addEventListener("hashchange", onHash); return () => window.removeEventListener("hashchange", onHash); }, []);
+  useEffect(() => { const applyPath = () => { const next = (window.location.hash.slice(1) as View) || pathToView[window.location.pathname] || 'home'; if (next === 'auth' || next === 'account' || secondaryViews.includes(next) || navItems.some((item) => item.id === next)) { setSelectedTelegraph(undefined); setView(next); } }; window.addEventListener('hashchange', applyPath); window.addEventListener('popstate', applyPath); return () => { window.removeEventListener('hashchange', applyPath); window.removeEventListener('popstate', applyPath); }; }, []);
   useEffect(() => {
     let mounted = true;
     const refreshActor = async () => {
@@ -1339,12 +1332,12 @@ export default function App({ projectId, onLeaveDetail }: { projectId?: string; 
     elements.forEach((element) => observer.observe(element));
     return () => observer.disconnect();
   }, [loading, view, projectId]);
-  const go = (next: View, query = "") => { setSelectedTelegraph(undefined); setView(next); setSearchQuery(query); window.location.hash = next; if (projectId) { onLeaveDetail?.(); window.history.replaceState({}, "", viewToPath[next]); } window.scrollTo({ top: 0, behavior: "smooth" }); setMenuOpen(false); };
+  const go = (next: View, query = '') => { setSelectedTelegraph(undefined); setView(next); setSearchQuery(query); if (projectId) onLeaveDetail?.(); const targetPath = viewToPath[next]; if (window.location.pathname !== targetPath || window.location.hash) window.history.pushState({}, '', targetPath); window.scrollTo({ top: 0, behavior: 'smooth' }); setMenuOpen(false); };
   const logoutPublic = async () => { try { await api.logout(); } catch { /* session may already be expired */ } finally { clearPublicSession(); setPublicActor(null); notifyAuthChanged(); go("home"); } };
   const handleSearch = (query: string, target: SearchTarget) => go(target, query);
   const openProject = (project: Project) => { if (getPublicSession()) { void api.recordRecentView("project", project.id); setRecentViews((current) => [{ resourceType: "project" as const, resourceId: project.id, viewedAt: new Date().toISOString() }, ...current.filter((view) => !(view.resourceType === "project" && view.resourceId === project.id))].slice(0, 20)); } window.location.assign(`/projects/${encodeURIComponent(project.id)}`); };
   const openArticle = (article: Article) => { if (getPublicSession()) { void api.recordRecentView("article", article.id); setRecentViews((current) => [{ resourceType: "article" as const, resourceId: article.id, viewedAt: new Date().toISOString() }, ...current.filter((view) => !(view.resourceType === "article" && view.resourceId === article.id))].slice(0, 20)); } setSelectedArticle(article); void api.article(article.slug).then(({ article: detail }) => setSelectedArticle((current) => current?.id === article.id ? detail : current)).catch(() => undefined); };
-  const openTelegraph = (entry: TelegraphEntry) => { setSelectedTelegraph(entry); setSearchQuery(""); window.location.hash = "events"; window.scrollTo({ top: 0, behavior: "smooth" }); setMenuOpen(false); };
+  const openTelegraph = (entry: TelegraphEntry) => { setSelectedTelegraph(entry); setSearchQuery(''); setView('events'); window.history.pushState({}, '', '/events'); window.scrollTo({ top: 0, behavior: 'smooth' }); setMenuOpen(false); };
   const toggleFavorite = async (resourceType: FavoriteResourceType, resourceId: string) => {
     if (!getPublicSession()) { go("auth"); return; }
     const key = `${resourceType}:${resourceId}`;

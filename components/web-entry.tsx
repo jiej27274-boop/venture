@@ -24,7 +24,7 @@ const pathToView: Record<string, string> = {
   "/account": "account",
 };
 
-const viewToPath: Record<string, string> = Object.fromEntries(Object.entries(pathToView).map(([path, view]) => [view, path]));
+
 
 function currentView() {
   if (typeof window === "undefined") return "home";
@@ -42,37 +42,19 @@ export default function WebEntry() {
   const [projectId, setProjectId] = useState<string | null>(null);
 
   useEffect(() => {
+    const onPop = () => setProjectId(projectDetailId());
+    window.addEventListener('popstate', onPop);
     const detailId = projectDetailId();
     if (detailId) {
       setProjectId(detailId);
-      window.history.replaceState({}, "", `/projects/${encodeURIComponent(detailId)}`);
+      window.history.replaceState({}, '', `/projects/${encodeURIComponent(detailId)}`);
       setReady(true);
-      return;
+      return () => window.removeEventListener('popstate', onPop);
     }
     const initialView = window.location.hash.slice(1) || currentView();
-    window.history.replaceState({}, "", `/#${initialView}`);
+    if (window.location.hash) window.history.replaceState({}, '', `/#${initialView}`);
     setReady(true);
-
-    const syncPath = () => {
-      const view = window.location.hash.slice(1) || "home";
-      const path = viewToPath[view] ?? "/";
-      if (window.location.pathname !== path || window.location.hash) window.history.replaceState({}, "", path);
-    };
-    const onHashChange = () => syncPath();
-    window.addEventListener("hashchange", onHashChange);
-    let timer = 0;
-    const syncWhenReady = () => {
-      if (!document.querySelector(".site-shell")) {
-        timer = window.setTimeout(syncWhenReady, 50);
-        return;
-      }
-      syncPath();
-    };
-    syncWhenReady();
-    return () => {
-      if (timer) window.clearTimeout(timer);
-      window.removeEventListener("hashchange", onHashChange);
-    };
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
 
   if (!ready) return <div className="loading">正在打开创投智联…</div>;
