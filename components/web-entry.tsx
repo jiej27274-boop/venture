@@ -76,5 +76,5 @@ export default function WebEntry() {
   }, []);
 
   if (!ready) return <div className="loading">正在打开创投智联…</div>;
-  return <WebApp projectId={projectId ?? undefined} />;
+  return <WebApp projectId={projectId ?? undefined} onLeaveDetail={() => setProjectId(null)} />;
 }
