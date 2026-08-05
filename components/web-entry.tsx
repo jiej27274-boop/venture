@@ -31,10 +31,24 @@ function currentView() {
   return pathToView[window.location.pathname] ?? pathToView[window.location.pathname.replace(/\/$/, "")] ?? "home";
 }
 
+function projectDetailId() {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/projects\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export default function WebEntry() {
   const [ready, setReady] = useState(false);
+  const [projectId, setProjectId] = useState<string | null>(null);
 
   useEffect(() => {
+    const detailId = projectDetailId();
+    if (detailId) {
+      setProjectId(detailId);
+      window.history.replaceState({}, "", `/projects/${encodeURIComponent(detailId)}`);
+      setReady(true);
+      return;
+    }
     const initialView = window.location.hash.slice(1) || currentView();
     window.history.replaceState({}, "", `/#${initialView}`);
     setReady(true);
@@ -62,5 +76,5 @@ export default function WebEntry() {
   }, []);
 
   if (!ready) return <div className="loading">正在打开创投智联…</div>;
-  return <WebApp />;
+  return <WebApp projectId={projectId ?? undefined} />;
 }
