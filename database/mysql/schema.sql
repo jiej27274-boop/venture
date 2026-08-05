@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS venture_users (
 
 CREATE TABLE IF NOT EXISTS venture_auth_accounts (
   legacy_user_id VARCHAR(191) NOT NULL PRIMARY KEY,
+  username VARCHAR(191) NULL UNIQUE,
   email VARCHAR(191) NULL UNIQUE,
   phone VARCHAR(32) NULL UNIQUE,
   password_hash TEXT NOT NULL,
@@ -327,6 +328,7 @@ CREATE TABLE IF NOT EXISTS venture_auth_sessions (
   token_hash CHAR(64) NOT NULL UNIQUE,
   user_legacy_id VARCHAR(191) NOT NULL,
   organization_legacy_id VARCHAR(191) NOT NULL,
+  session_type VARCHAR(16) NOT NULL DEFAULT 'public',
   expires_at DATETIME(3) NOT NULL,
   revoked_at DATETIME(3) NULL,
   created_at DATETIME(3) NOT NULL,

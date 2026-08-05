@@ -640,6 +640,23 @@ main {
   }
 }
 
+/* Account review: let the status and action columns hug their content so the
+   right edge reads as a compact control rail instead of an empty card. */
+.admin-shell .account-review-head,
+.admin-shell .account-review-row {
+  grid-template-columns: minmax(170px, 1.35fr) minmax(82px, .72fr) minmax(130px, 1.1fr) minmax(80px, .7fr) minmax(120px, .9fr) max-content minmax(122px, max-content);
+  gap: 12px;
+}
+.admin-shell .account-review-row > .status-chip { justify-self: start; white-space: nowrap; }
+.admin-shell .account-review-row > .account-actions { min-width: 0; justify-content: flex-end; align-items: center; gap: 6px; }
+.admin-shell .account-actions .primary-button,
+.admin-shell .account-actions .secondary-button { flex: 0 0 auto; min-width: 0; padding: 7px 10px; white-space: nowrap; }
+
+@media (max-width: 900px) {
+  .admin-shell .account-review-head,
+  .admin-shell .account-review-row { min-width: 850px; }
+}
+
 /* Identity review queue: content-first rows keep the admin page readable
    when summaries and reviewer notes become longer than a table cell. */
 .identity-review-panel { padding-bottom: 25px; }

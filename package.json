@@ -11,6 +11,7 @@
     "start": "next start --hostname 127.0.0.1 --port 5174",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "mysql:init": "node scripts/init-mysql.mjs",
+    "admin:init": "node scripts/create-admin.mjs",
     "migrate:mysql": "node scripts/migrate-sqlite-to-mysql.mjs",
     "preflight": "node scripts/preflight.mjs",
     "test:domain": "pnpm --filter @venture/domain test"

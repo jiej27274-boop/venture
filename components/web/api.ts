@@ -86,6 +86,30 @@ export interface RecentView { resourceType: FavoriteResourceType; resourceId: st
 export interface Notification { id: string; type: "system" | "account" | "project" | "bp" | "contact"; title: string; body: string; resourceType: string | null; resourceId: string | null; readAt: string | null; createdAt: string; }
 export interface Pagination { page: number; pageSize: number; total: number; totalPages: number; }
 
+export const PUBLIC_SESSION_KEY = "venture_public_session";
+const LEGACY_SESSION_KEY = "venture_session";
+
+export function getPublicSession() {
+  if (typeof window === "undefined") return null;
+  const current = window.localStorage.getItem(PUBLIC_SESSION_KEY);
+  if (current) return current;
+  const legacy = window.localStorage.getItem(LEGACY_SESSION_KEY);
+  if (!legacy) return null;
+  window.localStorage.setItem(PUBLIC_SESSION_KEY, legacy);
+  window.localStorage.removeItem(LEGACY_SESSION_KEY);
+  return legacy;
+}
+
+export function clearPublicSession() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(PUBLIC_SESSION_KEY);
+  window.localStorage.removeItem(LEGACY_SESSION_KEY);
+}
+
+export function notifyAuthChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("venture-auth-changed"));
+}
+
 type ListParams = { q?: string; industry?: string; region?: string; stage?: string; type?: Organization["type"] | "all"; category?: string; page?: number; pageSize?: number };
 
 function queryString(params: ListParams = {}) {
@@ -99,7 +123,7 @@ function queryString(params: ListParams = {}) {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers);
-  const token = typeof window !== "undefined" ? window.localStorage.getItem("venture_session") : null;
+  const token = getPublicSession();
   if (token && !headers.has("authorization")) headers.set("authorization", `Bearer ${token}`);
   const response = await fetch(path, { ...options, headers });
   if (!response.ok) {
