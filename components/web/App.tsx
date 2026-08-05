@@ -1288,7 +1288,7 @@ export default function App({ projectId, onLeaveDetail }: { projectId?: string; 
     }, { threshold: 0.12 });
     elements.forEach((element) => observer.observe(element));
     return () => observer.disconnect();
-  }, [loading, view]);
+  }, [loading, view, projectId]);
   const go = (next: View, query = "") => { setSelectedTelegraph(undefined); setView(next); setSearchQuery(query); window.location.hash = next; if (projectId) { onLeaveDetail?.(); window.history.replaceState({}, "", viewToPath[next]); } window.scrollTo({ top: 0, behavior: "smooth" }); setMenuOpen(false); };
   const logoutPublic = async () => { try { await api.logout(); } catch { /* session may already be expired */ } finally { clearPublicSession(); setPublicActor(null); notifyAuthChanged(); go("home"); } };
   const handleSearch = (query: string, target: SearchTarget) => go(target, query);
