@@ -73,7 +73,7 @@ import {
 } from "./database-mysql.ts";
 import { createSession, hashPassword, readSession, revokeSession, verifyPassword } from "./auth.ts";
 import { deliverEmail, emailDeliveryStatus } from "./email.ts";
-import { approveAuthAccount, consumeAuthToken, createAuthAccount, findAuthAccount, getAuthAccountByUserId, issueAuthToken, listAuthAccounts, markEmailVerified, updateAuthAccountStatus, updateAuthPassword, updateAuthProfile } from "./database-mysql.ts";
+import { approveAuthAccount, consumeAuthToken, createAuthAccount, findAdminAuthAccount, findAuthAccount, getAuthAccountByUserId, issueAuthToken, listAuthAccounts, markEmailVerified, updateAuthAccountStatus, updateAuthPassword, updateAuthProfile } from "./database-mysql.ts";
 
 const requestSchema = z.object({
   purpose: z.string().trim().min(10).max(500),
@@ -187,6 +187,7 @@ const registerSchema = z.object({
   .refine((value) => process.env.AUTH_EMAIL_REQUIRED !== "true" || Boolean(value.email), { message: "email_required", path: ["email"] })
   .refine((value) => value.password === value.confirmPassword, { message: "password_mismatch", path: ["confirmPassword"] });
 const loginSchema = z.object({ identifier: z.string().trim().min(3), password: z.string().min(6).max(128) });
+const adminLoginSchema = z.object({ username: z.string().trim().min(3).max(64), password: z.string().min(8).max(128) });
 const otpRequestSchema = z.object({ email: z.string().trim().email(), purpose: z.enum(["register", "login", "recovery"]) });
 const otpVerifySchema = z.object({ email: z.string().trim().email(), token: z.string().trim().regex(/^\d{6}$/), purpose: z.enum(["register", "login", "recovery"]) });
 const passwordChangeSchema = z.object({ currentPassword: z.string().min(6).max(128), newPassword: z.string().min(8).max(128), confirmPassword: z.string().min(8).max(128) }).refine((value) => value.newPassword === value.confirmPassword, { message: "password_mismatch", path: ["confirmPassword"] });
@@ -262,23 +263,34 @@ export function createApp({ database }: { database: VentureDatabase }) {
     context.header("X-Frame-Options", "DENY");
     context.header("Referrer-Policy", "strict-origin-when-cross-origin");
     context.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-    if (context.req.path.startsWith("/api/auth/") || context.req.path.startsWith("/api/me/")) context.header("Cache-Control", "no-store");
+    if (context.req.path.startsWith("/api/auth/") || context.req.path.startsWith("/api/admin/login") || context.req.path.startsWith("/api/admin/session") || context.req.path.startsWith("/api/admin/logout") || context.req.path.startsWith("/api/me/")) context.header("Cache-Control", "no-store");
   });
 
-  const actorFor = async (request: Request) => {
+  const bearerActorFor = async (request: Request, sessionType: "public" | "admin" = "public") => {
     const authorization = request.headers.get("authorization");
-    const bearer = authorization?.startsWith("Bearer ") ? await readSession(authorization.slice(7), database) : null;
+    const bearer = authorization?.startsWith("Bearer ") ? await readSession(authorization.slice(7), database, sessionType) : null;
     if (bearer) {
       const account = await getAuthAccountByUserId(database, bearer.userId);
       if (!account || account.status !== "active" || account.organizationId !== bearer.organizationId) return null;
       return await resolveActor(database, bearer.userId, bearer.organizationId);
     }
+    return null;
+  };
+
+  const actorFor = async (request: Request) => {
+    const bearerActor = await bearerActorFor(request);
+    if (bearerActor) return bearerActor;
     return resolveActor(
       database,
       request.headers.get("x-user-id") ?? undefined,
       request.headers.get("x-organization-id") ?? undefined,
     );
   };
+
+  // Admin APIs only accept the dedicated bearer session. The legacy identity
+  // headers remain available to the public demo routes but cannot impersonate
+  // a platform administrator.
+  const adminActorFor = (request: Request) => bearerActorFor(request, "admin");
 
   app.get("/health", async (context) =>
     context.json({ status: "ok", service: "venture-platform-api", time: new Date().toISOString() }),
@@ -287,12 +299,12 @@ export function createApp({ database }: { database: VentureDatabase }) {
   app.get("/api/readyz", async (context) => {
     try {
       const databaseReady = await checkDatabase(database);
-      if (!databaseReady) return context.json({ status: "not_ready", database: "not_configured" }, 503);
+      if (!databaseReady) return context.json({ status: "not_ready" }, 503);
       const email = emailDeliveryStatus();
-      if (process.env.NODE_ENV === "production" && !email.configured) return context.json({ status: "not_ready", database: "mysql", email: "not_configured" }, 503);
-      return context.json({ status: "ready", database: "mysql", email, time: new Date().toISOString() });
+      if (process.env.NODE_ENV === "production" && !email.configured) return context.json({ status: "not_ready" }, 503);
+      return context.json({ status: "ready", time: new Date().toISOString() });
     } catch {
-      return context.json({ status: "not_ready", database: "error" }, 503);
+      return context.json({ status: "not_ready" }, 503);
     }
   });
 
@@ -338,7 +350,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
     if (account.status === "pending") return context.json({ error: "account_pending" }, 403);
     if (account.status === "rejected") return context.json({ error: "account_rejected" }, 403);
     if (account.status === "suspended") return context.json({ error: "account_suspended" }, 403);
-    const session = await createSession({ userId: account.userId, organizationId: account.organizationId }, database);
+    const session = await createSession({ userId: account.userId, organizationId: account.organizationId, sessionType: "public" }, database);
     return context.json({ status: "authenticated", session, actor: await resolveActor(database, account.userId, account.organizationId) });
   });
 
@@ -391,8 +403,67 @@ export function createApp({ database }: { database: VentureDatabase }) {
     if (account.status === "pending") return context.json({ error: "account_pending" }, 403);
     if (account.status === "rejected") return context.json({ error: "account_rejected" }, 403);
     if (account.status === "suspended") return context.json({ error: "account_suspended" }, 403);
-    const session = await createSession({ userId: account.userId, organizationId: account.organizationId }, database);
+    const session = await createSession({ userId: account.userId, organizationId: account.organizationId, sessionType: "public" }, database);
     return context.json({ session, actor: await resolveActor(database, account.userId, account.organizationId) });
+  });
+
+  app.post("/api/admin/login", async (context) => {
+    const parsed = adminLoginSchema.safeParse(await context.req.json().catch(() => null));
+    if (!parsed.success) return context.json({ error: "invalid_admin_login", issues: parsed.error.flatten() }, 400);
+    const attemptKey = loginKey(context.req.raw, `admin:${parsed.data.username}`);
+    if (isLoginBlocked(attemptKey)) return context.json({ error: "login_rate_limited" }, 429);
+    const account = await findAdminAuthAccount(database, parsed.data.username);
+    if (!account || !verifyPassword(parsed.data.password, account.passwordHash)) {
+      recordLoginFailure(attemptKey);
+      return context.json({ error: "invalid_credentials" }, 401);
+    }
+    loginFailures.delete(attemptKey);
+    if (account.status === "suspended") return context.json({ error: "account_suspended" }, 403);
+    if (account.status !== "active") return context.json({ error: "platform_admin_required" }, 403);
+    const actor = await resolveActor(database, account.userId, account.organizationId);
+    if (!actor?.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
+    const session = await createSession({ userId: account.userId, organizationId: account.organizationId, sessionType: "admin" }, database);
+    return context.json({ session, actor });
+  });
+
+  app.get("/api/admin/session", async (context) => {
+    const actor = await adminActorFor(context.req.raw);
+    if (!actor) return context.json({ error: "authentication_required" }, 401);
+    if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
+    return context.json({ actor });
+  });
+
+  app.post("/api/admin/logout", async (context) => {
+    const actor = await adminActorFor(context.req.raw);
+    if (!actor) return context.json({ error: "authentication_required" }, 401);
+    if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
+    const authorization = context.req.header("authorization");
+    const token = authorization?.startsWith("Bearer ") ? authorization.slice(7) : undefined;
+    await revokeSession(token, database);
+    return context.json({ status: "signed_out" });
+  });
+
+  app.get("/api/admin/notifications", async (context) => {
+    const actor = await adminActorFor(context.req.raw);
+    if (!actor) return context.json({ error: "authentication_required" }, 401);
+    if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
+    const unreadOnly = context.req.query("unreadOnly") === "true";
+    return context.json({ notifications: await listNotifications(database, actor.userId, { unreadOnly }), unreadCount: await countUnreadNotifications(database, actor.userId) });
+  });
+
+  app.post("/api/admin/notifications/:notificationId/read", async (context) => {
+    const actor = await adminActorFor(context.req.raw);
+    if (!actor) return context.json({ error: "authentication_required" }, 401);
+    if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
+    const updated = await markNotificationRead(database, actor.userId, context.req.param("notificationId"));
+    return updated ? context.json({ read: true }) : context.json({ error: "notification_not_found" }, 404);
+  });
+
+  app.post("/api/admin/notifications/read-all", async (context) => {
+    const actor = await adminActorFor(context.req.raw);
+    if (!actor) return context.json({ error: "authentication_required" }, 401);
+    if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
+    return context.json({ read: await markAllNotificationsRead(database, actor.userId) });
   });
 
   app.post("/api/auth/email-verification/request", async (context) => {
@@ -487,7 +558,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
   app.get("/api/auth/config", async (context) => context.json({ emailRequired: process.env.AUTH_EMAIL_REQUIRED === "true", captchaEnabled: false, emailVerificationEnabled: true, passwordResetEnabled: true, otpEnabled: emailDeliveryStatus().configured }));
 
   app.get("/api/admin/auth-accounts", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     const status = context.req.query("status") as "pending" | "active" | "rejected" | undefined;
@@ -495,7 +566,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.post("/api/admin/auth-accounts/:userId/approve", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     const targetUserId = context.req.param("userId");
@@ -512,7 +583,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.post("/api/admin/auth-accounts/:userId/status", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     const body = await context.req.json().catch(() => null) as { status?: string } | null;
@@ -539,14 +610,14 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.get("/api/admin/project-submissions", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     return context.json({ projects: await listProjectSubmissions(database) });
   });
 
   app.post("/api/admin/project-submissions", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     const parsed = adminProjectSubmissionSchema.safeParse(await context.req.json().catch(() => null));
@@ -565,7 +636,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.post("/api/admin/project-submissions/:projectId/decision", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     const body = await context.req.json().catch(() => null) as { status?: string } | null;
@@ -584,7 +655,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.get("/api/admin/identity-submissions", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     const type = context.req.query("type") as IdentitySubmissionType | undefined;
@@ -596,7 +667,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.post("/api/admin/identity-submissions/:submissionId/decision", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     const parsed = identityDecisionSchema.safeParse(await context.req.json().catch(() => null));
@@ -1030,7 +1101,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.post("/api/admin/government-contacts", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     const parsed = adminGovernmentContactSchema.safeParse(await context.req.json().catch(() => null));
@@ -1057,14 +1128,14 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.get("/api/admin/audit-logs", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     return context.json(await listAuditLogs(database, auditQuery(context)));
   });
 
   app.get("/api/admin/audit-logs/export", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     const result = await listAuditLogs(database, { ...auditQuery(context), limit: 100 });
@@ -1078,7 +1149,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.get("/api/admin/contact-requests", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) {
       return context.json({ error: "platform_admin_required" }, 403);
@@ -1087,14 +1158,14 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.get("/api/admin/contact-requests/:requestId/updates", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     return context.json({ updates: await listContactRequestUpdates(database, context.req.param("requestId")) });
   });
 
   app.patch("/api/admin/contact-requests/:requestId", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) return context.json({ error: "platform_admin_required" }, 403);
     const parsed = contactRequestUpdateSchema.safeParse(await context.req.json().catch(() => null));
@@ -1115,7 +1186,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.get("/api/admin/articles", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) {
       return context.json({ error: "platform_admin_required" }, 403);
@@ -1124,7 +1195,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.post("/api/admin/articles", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) {
       return context.json({ error: "platform_admin_required" }, 403);
@@ -1139,7 +1210,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.patch("/api/admin/articles/:articleId", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) {
       return context.json({ error: "platform_admin_required" }, 403);
@@ -1155,7 +1226,7 @@ export function createApp({ database }: { database: VentureDatabase }) {
   });
 
   app.get("/api/admin/overview", async (context) => {
-    const actor = await actorFor(context.req.raw);
+    const actor = await adminActorFor(context.req.raw);
     if (!actor) return context.json({ error: "authentication_required" }, 401);
     if (!actor.roles.includes("platform_admin")) {
       return context.json({ error: "platform_admin_required" }, 403);

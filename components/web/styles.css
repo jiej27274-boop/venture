@@ -339,6 +339,80 @@ body { color:#1d1d1f; background:#f5f5f7; -webkit-font-smoothing:antialiased; }
 @media (max-width:620px) { .recent-view-list { grid-template-columns:1fr; } }
 @media (max-width:620px) { .project-submit-form { grid-template-columns:1fr; }.project-submit-form textarea,.project-submit-message { grid-column:auto; }.project-submit-form .file-field { grid-column:auto; flex-direction:column; align-items:flex-start; } }
 @media (max-width:620px) { .favorite-list { grid-template-columns:1fr; } }
+
+/* Authentication surfaces: keep recovery separate from the auth form and keep
+   the signed-in account affordance in the same header position on every route. */
+.password-reset-card.open {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  width: auto;
+  height: 100dvh;
+  padding: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: rgba(8, 31, 48, .32);
+  box-shadow: none;
+  backdrop-filter: blur(12px) saturate(115%);
+}
+.password-reset-card.open > div {
+  width: min(390px, 100%);
+  padding: 25px;
+  border: 1px solid rgba(255,255,255,.76);
+  border-radius: 22px;
+  background: rgba(255,255,255,.97);
+  box-shadow: 0 30px 90px rgba(8, 39, 67, .24);
+}
+.password-reset-card.open .password-reset-heading { margin-bottom: 20px; }
+.password-reset-card.open .password-reset-heading b { font-size: 20px; }
+.password-reset-card.open .password-reset-close { width: 32px; height: 32px; border-radius: 50%; background: #f0f4f8; }
+.password-reset-card.open form { gap: 11px; }
+
+.public-account-floating {
+  position: fixed;
+  top: 18px;
+  right: max(20px, calc((100vw - 1240px) / 2));
+  z-index: 80;
+}
+.site-shell:has(.public-account-floating) .header-cta { visibility: hidden; pointer-events: none; }
+.public-account-menu { position: relative; }
+.public-account-trigger {
+  min-height: 42px;
+  padding: 4px 10px 4px 5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(36,116,215,.16);
+  border-radius: 980px;
+  color: #294866;
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 10px 28px rgba(38, 84, 125, .14);
+  backdrop-filter: blur(16px);
+}
+.public-account-trigger:hover { border-color: rgba(36,116,215,.36); background: #fff; }
+.public-account-avatar { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: linear-gradient(145deg,#3988d8,#2162b4); font-size: 14px; font-weight: 800; }
+.public-account-copy { min-width: 0; display: grid; gap: 2px; text-align: left; }
+.public-account-copy b { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.public-account-copy small { color: #8b9fb5; font-size: 9px; }
+.public-account-chevron { margin-left: 2px; color: #8da4bb; font-size: 16px; line-height: 1; }
+.public-account-popover { position: absolute; top: calc(100% + 9px); right: 0; width: 220px; padding: 8px; border: 1px solid rgba(36,116,215,.12); border-radius: 16px; background: rgba(255,255,255,.97); box-shadow: 0 18px 55px rgba(38,84,125,.18); backdrop-filter: blur(22px); }
+.public-account-summary { padding: 10px; display: flex; align-items: center; gap: 9px; border-bottom: 1px solid #edf3f8; }
+.public-account-summary > div { min-width: 0; display: grid; gap: 3px; }
+.public-account-summary b,.public-account-summary small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.public-account-summary b { color: #294866; font-size: 12px; }
+.public-account-summary small { color: #91a3b6; font-size: 10px; }
+.public-account-popover > button { width: 100%; padding: 10px 11px; border: 0; border-radius: 10px; color: #47627d; background: transparent; text-align: left; font-size: 12px; }
+.public-account-popover > button:hover { color: #1e63b8; background: #eef5ff; }
+.public-account-popover > button.public-account-logout { margin-top: 3px; color: #b05a5a; border-top: 1px solid #edf3f8; border-radius: 0 0 10px 10px; }
+.public-account-popover > button.public-account-logout:hover { color: #a74141; background: #fff3f3; }
+@media (max-width:720px) {
+  .public-account-floating { top: 9px; right: 12px; }
+  .public-account-copy { display: none; }
+  .public-account-trigger { min-height: 40px; padding-right: 6px; }
+  .public-account-popover { right: -4px; }
+}
 .password-reset-card { position:fixed; right:24px; bottom:24px; z-index:20; }.password-reset-trigger { padding:10px 14px; border:1px solid #cfe0f3; border-radius:999px; color:#2474d7; background:#fff; box-shadow:0 10px 26px rgba(35,86,139,.12); font-size:12px; }.password-reset-card.open { width:min(330px,calc(100vw - 32px)); padding:18px; border:1px solid #d7e5f4; border-radius:14px; background:#fff; box-shadow:0 18px 48px rgba(35,86,139,.18); }.password-reset-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:14px; }.password-reset-heading b { display:block; margin-top:5px; color:#284663; font-size:16px; }.password-reset-close { padding:0; border:0; color:#92a5b9; background:transparent; font-size:20px; }.password-reset-card form { display:grid; gap:9px; }.password-reset-card input { width:100%; height:40px; padding:0 11px; border:1px solid #d5e3f2; border-radius:7px; outline:0; color:#2d4663; background:#fbfdff; font:inherit; font-size:12px; }.password-reset-card input:focus { border-color:#6ca4ea; box-shadow:0 0 0 3px rgba(36,116,215,.1); }.password-reset-card .primary { width:100%; }.password-reset-message,.password-reset-done { margin:10px 0 0; color:#6d86a3; font-size:11px; line-height:1.5; }.password-reset-done { color:#23845f; }
 .email-verify-strip { padding-top:0; padding-bottom:26px; }.email-verify-status { color:#c27a2c; font-size:12px; }.email-preview-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }.email-preview-row code { flex:1; min-width:240px; padding:12px 14px; border:1px dashed #b9d5f1; border-radius:9px; color:#416689; background:#f7fbff; font-size:12px; word-break:break-all; }
 /* Shared navigation state across every route and viewport. */
@@ -426,3 +500,14 @@ body { color:#1d1d1f; background:#f5f5f7; -webkit-font-smoothing:antialiased; }
   .view-home .portal-stat small { font-size: 11px; }
 }
 .pagination { display:flex; align-items:center; justify-content:center; gap:12px; margin:28px 0 8px; color:#7f96ad; font-size:12px; }.pagination button { padding:8px 13px; border:1px solid #d7e5f3; border-radius:999px; color:#376487; background:#fff; font:inherit; cursor:pointer; }.pagination button:hover:not(:disabled) { border-color:#8bb8e6; color:#2474d7; }.pagination button:disabled { cursor:not-allowed; opacity:.45; }.pagination b { min-width:56px; color:#315878; text-align:center; }
+
+/* Final auth overrides: the recovery dialog must sit above the auth panel. */
+.password-reset-card.open { position:fixed; inset:0; z-index:90; width:auto; height:100dvh; padding:24px; display:grid; place-items:center; border:0; border-radius:0; background:rgba(8,31,48,.32); box-shadow:none; backdrop-filter:blur(12px) saturate(115%); }
+.password-reset-card.open > div { width:min(390px,100%); padding:25px; border:1px solid rgba(255,255,255,.76); border-radius:22px; background:rgba(255,255,255,.97); box-shadow:0 30px 90px rgba(8,39,67,.24); }
+.password-reset-card.open .password-reset-heading { margin-bottom:20px; }.password-reset-card.open .password-reset-heading b { font-size:20px; }.password-reset-card.open .password-reset-close { width:32px; height:32px; border-radius:50%; background:#f0f4f8; }.password-reset-card.open form { gap:11px; }
+.public-account-floating { position:fixed; top:18px; right:max(20px,calc((100vw - 1240px) / 2)); z-index:80; }
+.site-shell:has(.public-account-floating) .header-cta { visibility:hidden; pointer-events:none; }
+.public-account-menu { position:relative; }.public-account-trigger { min-height:42px; padding:4px 10px 4px 5px; display:flex; align-items:center; gap:8px; border:1px solid rgba(36,116,215,.16); border-radius:980px; color:#294866; background:rgba(255,255,255,.94); box-shadow:0 10px 28px rgba(38,84,125,.14); backdrop-filter:blur(16px); }.public-account-trigger:hover { border-color:rgba(36,116,215,.36); background:#fff; }
+.public-account-avatar { width:32px; height:32px; flex:0 0 32px; display:grid; place-items:center; border-radius:50%; color:#fff; background:linear-gradient(145deg,#3988d8,#2162b4); font-size:14px; font-weight:800; }.public-account-copy { min-width:0; display:grid; gap:2px; text-align:left; }.public-account-copy b { max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }.public-account-copy small { color:#8b9fb5; font-size:9px; }.public-account-chevron { margin-left:2px; color:#8da4bb; font-size:16px; line-height:1; }
+.public-account-popover { position:absolute; top:calc(100% + 9px); right:0; width:220px; padding:8px; border:1px solid rgba(36,116,215,.12); border-radius:16px; background:rgba(255,255,255,.97); box-shadow:0 18px 55px rgba(38,84,125,.18); backdrop-filter:blur(22px); }.public-account-summary { padding:10px; display:flex; align-items:center; gap:9px; border-bottom:1px solid #edf3f8; }.public-account-summary > div { min-width:0; display:grid; gap:3px; }.public-account-summary b,.public-account-summary small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.public-account-summary b { color:#294866; font-size:12px; }.public-account-summary small { color:#91a3b6; font-size:10px; }.public-account-popover > button { width:100%; padding:10px 11px; border:0; border-radius:10px; color:#47627d; background:transparent; text-align:left; font-size:12px; }.public-account-popover > button:hover { color:#1e63b8; background:#eef5ff; }.public-account-popover > button.public-account-logout { margin-top:3px; color:#b05a5a; border-top:1px solid #edf3f8; border-radius:0 0 10px 10px; }.public-account-popover > button.public-account-logout:hover { color:#a74141; background:#fff3f3; }
+@media (max-width:720px) { .public-account-floating { top:9px; right:12px; }.public-account-copy { display:none; }.public-account-trigger { min-height:40px; padding-right:6px; }.public-account-popover { right:-4px; } }

@@ -90,6 +90,7 @@ export interface NotificationRecord {
 
 export interface AuthAccountRecord {
   userId: string;
+  username: string | null;
   email: string | null;
   phone: string | null;
   passwordHash: string;
@@ -208,6 +209,7 @@ function now() {
 function mapAuthAccount(row: Row): AuthAccountRecord {
   return {
     userId: text(row, "legacy_user_id"),
+    username: nullableText(row, "username"),
     email: nullableText(row, "email"),
     phone: nullableText(row, "phone"),
     passwordHash: text(row, "password_hash"),
@@ -394,6 +396,13 @@ export async function findAuthAccount(database: VentureDatabase, identifier: str
   return authAccountByColumn(database, "phone", identifier.trim());
 }
 
+export async function findAdminAuthAccount(database: VentureDatabase, username: string) {
+  const normalized = username.trim().toLowerCase();
+  if (!normalized) return null;
+  const account = await authAccountByColumn(database, "username", normalized);
+  return account?.role === "platform" ? account : null;
+}
+
 export function getAuthAccountByUserId(database: VentureDatabase, userId: string) {
   return authAccountByColumn(database, "legacy_user_id", userId);
 }
@@ -457,13 +466,14 @@ export async function updateAuthAccountStatus(database: VentureDatabase, userId:
 }
 
 export async function listAuthAccounts(database: VentureDatabase, status?: AuthAccountRecord["status"]) {
-  let query = database.from("venture_auth_accounts").select("*").order("created_at", { ascending: false });
+  let query = database.from("venture_auth_accounts").select("*").neq("role", "platform").order("created_at", { ascending: false });
   if (status) query = query.eq("status", status);
   const accounts = await unwrap<Row[]>(query);
   const organizationMap = await organizationNames(database, accounts.map((row) => text(row, "organization_legacy_id")));
   const users = await userNames(database, accounts.map((row) => text(row, "legacy_user_id")));
   return accounts.map((row) => ({
     userId: text(row, "legacy_user_id"),
+    username: nullableText(row, "username"),
     email: nullableText(row, "email"),
     phone: nullableText(row, "phone"),
     role: text(row, "role"),
@@ -1002,13 +1012,17 @@ export async function consumeEmailVerificationProof(database: VentureDatabase, e
   return rows.length > 0;
 }
 
-export async function createAuthSessionRecord(database: VentureDatabase, input: { id: string; tokenHash: string; userId: string; organizationId: string; expiresAt: string; createdAt: string }) {
+export type AuthSessionType = "public" | "admin";
+
+export async function createAuthSessionRecord(database: VentureDatabase, input: { id: string; tokenHash: string; userId: string; organizationId: string; sessionType: AuthSessionType; expiresAt: string; createdAt: string }) {
   await unwrap(database.from("venture_auth_sessions").delete().or(`expires_at.lte.${input.createdAt},revoked_at.not.is.null`));
-  await unwrap(database.from("venture_auth_sessions").insert({ legacy_id: input.id, token_hash: input.tokenHash, user_legacy_id: input.userId, organization_legacy_id: input.organizationId, expires_at: input.expiresAt, created_at: input.createdAt }));
+  await unwrap(database.from("venture_auth_sessions").insert({ legacy_id: input.id, token_hash: input.tokenHash, user_legacy_id: input.userId, organization_legacy_id: input.organizationId, session_type: input.sessionType, expires_at: input.expiresAt, created_at: input.createdAt }));
 }
 
-export async function readAuthSessionRecord(database: VentureDatabase, tokenHash: string, userId: string, organizationId: string) {
-  return maybeOne<Row>(database.from("venture_auth_sessions").select("*").eq("token_hash", tokenHash).eq("user_legacy_id", userId).eq("organization_legacy_id", organizationId).limit(1).maybeSingle());
+export async function readAuthSessionRecord(database: VentureDatabase, tokenHash: string, userId: string, organizationId: string, sessionType?: AuthSessionType) {
+  let query = database.from("venture_auth_sessions").select("*").eq("token_hash", tokenHash).eq("user_legacy_id", userId).eq("organization_legacy_id", organizationId);
+  if (sessionType) query = query.eq("session_type", sessionType);
+  return maybeOne<Row>(query.limit(1).maybeSingle());
 }
 
 export async function revokeAuthSessionRecord(database: VentureDatabase, tokenHash: string) {

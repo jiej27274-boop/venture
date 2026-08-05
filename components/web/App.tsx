@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   api,
+  clearPublicSession,
+  getPublicSession,
+  notifyAuthChanged,
+  PUBLIC_SESSION_KEY,
   type Article,
   type AuthActor,
   type FavoriteResourceType,
@@ -706,7 +710,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
   const [state, setState] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!window.localStorage.getItem("venture_session")) { window.location.hash = "auth"; return; }
+    if (!getPublicSession()) { window.location.hash = "auth"; return; }
     setState("submitting");
     try { await api.requestBp(project.id, purpose); setState("success"); }
     catch { setState("error"); }
@@ -744,6 +748,32 @@ function RoleSelectionModal({ onClose, onSelect }: { onClose: () => void; onSele
 
 const authRoleLabels: Record<string, string> = { user: "普通用户", project: "项目方", investor: "投资机构", fa: "FA 机构", government: "政府招商", platform: "平台管理员" };
 
+function PublicAccountMenu({ actor, onNavigate, onOpenAdmin, onLogout }: { actor: AuthActor; onNavigate: (view: View) => void; onOpenAdmin: () => void; onLogout: () => void }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const displayName = actor.displayName?.trim() || actor.organizationName?.trim() || actor.email?.split("@")[0] || "平台用户";
+  const roleLabel = authRoleLabels[actor.organizationType] ?? "平台用户";
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => { if (!menuRef.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  return <div className="public-account-menu" ref={menuRef}>
+    <button className="public-account-trigger" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((value) => !value)}>
+      <span className="public-account-avatar">{displayName.slice(0, 1)}</span>
+      <span className="public-account-copy"><b>{displayName}</b><small>{roleLabel}</small></span>
+      <span className="public-account-chevron" aria-hidden="true">⌄</span>
+    </button>
+    {open && <div className="public-account-popover" role="menu">
+      <div className="public-account-summary"><span className="public-account-avatar">{displayName.slice(0, 1)}</span><div><b>{displayName}</b><small>{actor.email ?? actor.phone ?? "已登录"}</small></div></div>
+      <button role="menuitem" onClick={() => { setOpen(false); onNavigate("account"); }}>个人中心</button>
+      {actor.roles.includes("platform_admin") && <button role="menuitem" onClick={() => { setOpen(false); onOpenAdmin(); }}>管理后台</button>}
+      <button className="public-account-logout" role="menuitem" onClick={() => { setOpen(false); onLogout(); }}>退出登录</button>
+    </div>}
+  </div>;
+}
+
 function AccountView({ go }: { go: (view: View) => void }) {
   const [actor, setActor] = useState<AuthActor>();
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -754,7 +784,7 @@ function AccountView({ go }: { go: (view: View) => void }) {
   const [recentViews, setRecentViews] = useState<RecentView[]>([]);
   const [projectForm, setProjectForm] = useState({ name: "", summary: "", industry: "", region: "", stage: "", financingRange: "", identityMode: "named" as "named" | "anonymous", anonymousName: "" });
   useEffect(() => { api.session().then((result) => { setActor(result.actor); setState("ready"); api.favorites().then((payload) => setFavorites(payload.favorites)).catch(() => undefined); api.recentViews().then((payload) => setRecentViews(payload.views)).catch(() => undefined); }).catch(() => setState("error")); }, []);
-  const logout = async () => { try { await api.logout(); } catch { /* session may already be expired */ } finally { window.localStorage.removeItem("venture_session"); go("home"); } };
+  const logout = async () => { try { await api.logout(); } catch { /* session may already be expired */ } finally { clearPublicSession(); notifyAuthChanged(); go("home"); } };
   const submitProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setProjectSaving(true); setProjectMessage("");
     try {
@@ -805,7 +835,7 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
     try {
       const result = await api.verifyOtp({ email: form.email, token: otpCode, purpose: mode === "register" ? "register" : "login" });
       if (mode === "register") { setEmailVerificationToken(result.emailVerificationToken ?? undefined); setOtpVerified(true); setOtpNotice("邮箱已验证，可以完成注册。"); }
-      else if (result.session) { window.localStorage.setItem("venture_session", result.session); setSubmitted(true); }
+      else if (result.session) { window.localStorage.setItem(PUBLIC_SESSION_KEY, result.session); notifyAuthChanged(); setSubmitted(true); }
       return result.emailVerificationToken;
     } catch (reason) {
       const code = reason instanceof Error ? reason.message : "";
@@ -839,7 +869,8 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
         return;
       } else {
         const result = await api.login({ identifier: form.email, password: form.password });
-        window.localStorage.setItem("venture_session", result.session);
+        window.localStorage.setItem(PUBLIC_SESSION_KEY, result.session);
+        notifyAuthChanged();
       }
       setSubmitted(true);
     } catch (reason) {
@@ -891,9 +922,6 @@ function AuthView({ initialRole, go }: { initialRole?: RoleId; go: (view: View) 
               {mode === "login" && otpEnabled && <div className="auth-login-method auth-full"><button type="button" className={loginMethod === "password" ? "active" : ""} onClick={() => { setLoginMethod("password"); setError(""); setOtpNotice(""); }}>密码登录</button><button type="button" className={loginMethod === "otp" ? "active" : ""} onClick={() => { setLoginMethod("otp"); setError(""); setOtpNotice(""); }}>邮件验证码登录</button></div>}
               {mode === "register" && (
                 <>
-                  <label className="auth-full">身份
-                    <Dropdown className="auth-role-select" ariaLabel="身份" value={role} onChange={(value) => setRole(value as RoleId)} options={roleOptions.map((item) => ({ value: item.id, label: item.label }))} />
-                  </label>
                   <div className="auth-role-grid">
                     {roleOptions.map((item) => <button type="button" key={item.id} className={role === item.id ? "selected" : ""} onClick={() => setRole(item.id)}><span className={`auth-role-icon role-icon-${item.id}`}><RoleIcon name={item.icon}/></span><b>{item.label}</b><small>{item.description}</small></button>)}
                   </div>
@@ -1175,7 +1203,7 @@ function AccountWorkspace({ go, projects, articles }: { go: (view: View) => void
     finally { setLoading(false); }
   };
   useEffect(() => { void load(); }, []);
-  const logout = async () => { try { await api.logout(); } catch { /* session may already be expired */ } finally { window.localStorage.removeItem("venture_session"); go("home"); } };
+  const logout = async () => { try { await api.logout(); } catch { /* session may already be expired */ } finally { clearPublicSession(); notifyAuthChanged(); go("home"); } };
   const selectSection = (section: WorkspaceSection) => { setActive(section); setMobileMenuOpen(false); };
   const markRead = async (notification: Notification) => { if (notification.readAt) return; await api.markNotificationRead(notification.id); setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, readAt: new Date().toISOString() } : item)); };
   const markAll = async () => { await api.markAllNotificationsRead(); setNotifications((current) => current.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() }))); };
@@ -1203,14 +1231,33 @@ export default function App() {
   const [view, setView] = useState<View>(() => (window.location.hash.slice(1) as View) || "home");
   const [projects, setProjects] = useState<Project[]>([]); const [organizations, setOrganizations] = useState<Organization[]>([]); const [contacts, setContacts] = useState<GovernmentContact[]>([]); const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [menuOpen, setMenuOpen] = useState(false);
+  const [publicActor, setPublicActor] = useState<AuthActor | null>(null);
   const [favoriteKeys, setFavoriteKeys] = useState<Set<string>>(new Set());
   const [recentViews, setRecentViews] = useState<RecentView[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProject, setSelectedProject] = useState<Project>(); const [selectedArticle, setSelectedArticle] = useState<Article>(); const [selectedTelegraph, setSelectedTelegraph] = useState<TelegraphEntry>(); const [contactModal, setContactModal] = useState<{ open: boolean; contact?: GovernmentContact }>({ open: false }); const [roleModalOpen, setRoleModalOpen] = useState(false); const [selectedRole, setSelectedRole] = useState<RoleId>();
   useEffect(() => { const onHash = () => { const next = window.location.hash.slice(1) as View; if (next === "auth" || next === "account" || secondaryViews.includes(next) || navItems.some((item) => item.id === next)) setView(next); }; window.addEventListener("hashchange", onHash); return () => window.removeEventListener("hashchange", onHash); }, []);
+  useEffect(() => {
+    let mounted = true;
+    const refreshActor = async () => {
+      if (!getPublicSession()) { if (mounted) setPublicActor(null); return; }
+      try {
+        const result = await api.session();
+        if (mounted) setPublicActor(result.actor);
+      } catch {
+        clearPublicSession();
+        if (mounted) setPublicActor(null);
+      }
+    };
+    const onAuthChanged = () => { void refreshActor(); };
+    void refreshActor();
+    window.addEventListener("venture-auth-changed", onAuthChanged);
+    window.addEventListener("storage", onAuthChanged);
+    return () => { mounted = false; window.removeEventListener("venture-auth-changed", onAuthChanged); window.removeEventListener("storage", onAuthChanged); };
+  }, []);
   useEffect(() => { Promise.all([api.projects({ page: 1, pageSize: 50 }), api.organizations({ page: 1, pageSize: 50 }), api.contacts({ page: 1, pageSize: 50 }), api.articles({ page: 1, pageSize: 50 })]).then(([p, o, c, a]) => { setProjects(p.projects); setOrganizations(o.organizations); setContacts(c.contacts); setArticles(a.articles); }).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false)); }, []);
-  useEffect(() => { if (!window.localStorage.getItem("venture_session")) return; api.favorites().then(({ favorites }) => setFavoriteKeys(new Set(favorites.map((favorite) => `${favorite.resourceType}:${favorite.resourceId}`)))).catch(() => undefined); }, []);
-  useEffect(() => { if (!window.localStorage.getItem("venture_session")) return; api.recentViews().then(({ views }) => setRecentViews(views)).catch(() => undefined); }, [view]);
+  useEffect(() => { if (!getPublicSession()) return; api.favorites().then(({ favorites }) => setFavoriteKeys(new Set(favorites.map((favorite) => `${favorite.resourceType}:${favorite.resourceId}`)))).catch(() => undefined); }, []);
+  useEffect(() => { if (!getPublicSession()) return; api.recentViews().then(({ views }) => setRecentViews(views)).catch(() => undefined); }, [view]);
   useEffect(() => {
     if (loading) return;
     const elements = document.querySelectorAll<HTMLElement>(".reveal");
@@ -1230,12 +1277,13 @@ export default function App() {
     return () => observer.disconnect();
   }, [loading, view]);
   const go = (next: View, query = "") => { setSelectedTelegraph(undefined); setView(next); setSearchQuery(query); window.location.hash = next; window.scrollTo({ top: 0, behavior: "smooth" }); setMenuOpen(false); };
+  const logoutPublic = async () => { try { await api.logout(); } catch { /* session may already be expired */ } finally { clearPublicSession(); setPublicActor(null); notifyAuthChanged(); go("home"); } };
   const handleSearch = (query: string, target: SearchTarget) => go(target, query);
-  const openProject = (project: Project) => { if (window.localStorage.getItem("venture_session")) { void api.recordRecentView("project", project.id); setRecentViews((current) => [{ resourceType: "project" as const, resourceId: project.id, viewedAt: new Date().toISOString() }, ...current.filter((view) => !(view.resourceType === "project" && view.resourceId === project.id))].slice(0, 20)); } setSelectedProject(project); void api.project(project.id).then(({ project: detail }) => setSelectedProject((current) => current?.id === project.id ? { ...current, ...detail } : current)).catch(() => undefined); };
-  const openArticle = (article: Article) => { if (window.localStorage.getItem("venture_session")) { void api.recordRecentView("article", article.id); setRecentViews((current) => [{ resourceType: "article" as const, resourceId: article.id, viewedAt: new Date().toISOString() }, ...current.filter((view) => !(view.resourceType === "article" && view.resourceId === article.id))].slice(0, 20)); } setSelectedArticle(article); void api.article(article.slug).then(({ article: detail }) => setSelectedArticle((current) => current?.id === article.id ? detail : current)).catch(() => undefined); };
+  const openProject = (project: Project) => { if (getPublicSession()) { void api.recordRecentView("project", project.id); setRecentViews((current) => [{ resourceType: "project" as const, resourceId: project.id, viewedAt: new Date().toISOString() }, ...current.filter((view) => !(view.resourceType === "project" && view.resourceId === project.id))].slice(0, 20)); } setSelectedProject(project); void api.project(project.id).then(({ project: detail }) => setSelectedProject((current) => current?.id === project.id ? { ...current, ...detail } : current)).catch(() => undefined); };
+  const openArticle = (article: Article) => { if (getPublicSession()) { void api.recordRecentView("article", article.id); setRecentViews((current) => [{ resourceType: "article" as const, resourceId: article.id, viewedAt: new Date().toISOString() }, ...current.filter((view) => !(view.resourceType === "article" && view.resourceId === article.id))].slice(0, 20)); } setSelectedArticle(article); void api.article(article.slug).then(({ article: detail }) => setSelectedArticle((current) => current?.id === article.id ? detail : current)).catch(() => undefined); };
   const openTelegraph = (entry: TelegraphEntry) => { setSelectedTelegraph(entry); setSearchQuery(""); window.location.hash = "events"; window.scrollTo({ top: 0, behavior: "smooth" }); setMenuOpen(false); };
   const toggleFavorite = async (resourceType: FavoriteResourceType, resourceId: string) => {
-    if (!window.localStorage.getItem("venture_session")) { go("auth"); return; }
+    if (!getPublicSession()) { go("auth"); return; }
     const key = `${resourceType}:${resourceId}`;
     try {
       if (favoriteKeys.has(key)) { await api.removeFavorite(resourceType, resourceId); setFavoriteKeys((current) => { const next = new Set(current); next.delete(key); return next; }); }
@@ -1254,5 +1302,6 @@ export default function App() {
   if (view === "services") content = <ServicesPage onBackHome={() => go("home")} onNavigate={(destination) => { if (destination === "auth") setSelectedRole("user"); go(destination); }}/>;
   if (view === "auth") content = <AuthView initialRole={selectedRole} go={go}/>;
   if (view === "account") content = <AccountWorkspace go={go} projects={projects} articles={articles}/>;
+  if (publicActor) content = <><div className="public-account-floating"><PublicAccountMenu actor={publicActor} onNavigate={go} onOpenAdmin={() => window.location.assign("/admin")} onLogout={() => void logoutPublic()} /></div>{content}</>;
   return <div className={`site-shell view-${view}`}><header className="site-header"><div className="header-inner"><button className="brand" onClick={() => go("home")}><QifengLogo /></button><button className="menu-button" aria-label="打开导航" onClick={() => setMenuOpen(!menuOpen)}><i/><i/><i/></button><nav className={menuOpen ? "open" : ""}>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => go(item.id)}>{item.label}</button>)}</nav><GlobalSearch projects={projects} organizations={organizations} contacts={contacts} onSearch={handleSearch}/><button className="header-cta" onClick={() => { setSelectedRole("user"); go("auth"); }}>登录注册</button></div></header>{loading ? <div className="loading">正在连接创投资源…</div> : error ? <div className="loading error">载入失败：{error}</div> : content}<footer><div className="section-wrap footer-grid"><div><div className="footer-brand"><QifengLogo /></div><p>连接项目、资本与政府产业资源。</p></div><div><b>平台导航</b><button onClick={() => go("projects")}>投融资</button><button onClick={() => go("organizations")}>公司</button><button onClick={() => go("institutions")}>创投机构</button><button onClick={() => go("government")}>政府对接</button><button onClick={() => go("research")}>研究报告</button><button onClick={() => go("events")}>创投电报</button><button onClick={() => go("industries")}>行业图谱</button><button onClick={() => go("services")}>产品服务</button></div><div><b>安全原则</b><span>主体认证</span><span>最小权限</span><span>访问留痕</span></div><div><b>当前版本</b><span>试点 MVP</span><span>线下登记与对接</span><span>正式上线需备案域名</span></div></div><div className="footer-bottom">© 2026 创投智联 · 本平台信息仅供交流，不构成投资建议</div></footer>{roleModalOpen && <RoleSelectionModal onClose={() => setRoleModalOpen(false)} onSelect={(role) => { setSelectedRole(role); setRoleModalOpen(false); go("auth"); }}/>} {contactModal.open && <ContactModal contact={contactModal.contact} onClose={() => setContactModal({ open: false })}/>} {selectedProject && <ProjectModal project={selectedProject} onClose={() => setSelectedProject(undefined)}/>} {selectedArticle && <ArticleModal article={selectedArticle} onClose={() => setSelectedArticle(undefined)}/>}</div>;
 }
