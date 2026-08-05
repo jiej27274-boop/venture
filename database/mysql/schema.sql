@@ -70,6 +70,18 @@ CREATE TABLE IF NOT EXISTS venture_organization_profiles (
   description TEXT NOT NULL,
   region VARCHAR(120) NOT NULL,
   focus JSON NOT NULL,
+  company_status VARCHAR(32) NULL,
+  founded_year VARCHAR(16) NULL,
+  latest_round VARCHAR(32) NULL,
+  last_funding_at VARCHAR(16) NULL,
+  valuation_label VARCHAR(64) NULL,
+  institution_kind VARCHAR(32) NULL,
+  fund_currency VARCHAR(16) NULL,
+  investment_stage VARCHAR(32) NULL,
+  invested_count INT NULL,
+  ipo_count INT NULL,
+  deal_count INT NULL,
+  esg TINYINT(1) NOT NULL DEFAULT 0,
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   CONSTRAINT venture_org_profiles_org_fk FOREIGN KEY (organization_legacy_id) REFERENCES venture_organizations (legacy_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

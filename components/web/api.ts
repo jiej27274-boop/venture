@@ -37,11 +37,23 @@ export interface IdentitySubmission {
 export interface Organization {
   id: string;
   name: string;
-  type: "investor" | "fa" | "government";
+  type: "company" | "investor" | "fa" | "government";
   tagline: string;
   description: string;
   region: string;
   focus: string[];
+  companyStatus?: string;
+  foundedYear?: string;
+  latestRound?: string;
+  lastFundingAt?: string;
+  valuation?: string;
+  institutionKind?: string;
+  fundCurrency?: string;
+  investmentStage?: string;
+  investedCount?: number;
+  ipoCount?: number;
+  dealCount?: number;
+  esg?: boolean;
 }
 
 export interface GovernmentContact {

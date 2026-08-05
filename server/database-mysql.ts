@@ -188,6 +188,13 @@ function nullableText(row: Row, key: string) {
   return value === null || value === undefined || value === "" ? null : String(value);
 }
 
+function nullableNumber(row: Row, key: string) {
+  const value = row[key];
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function bool(row: Row, key: string) {
   return row[key] === true || row[key] === 1 || row[key] === "1";
 }
@@ -812,13 +819,13 @@ export async function createGovernmentContact(database: VentureDatabase, input: 
 }
 
 export async function listPublicOrganizations(database: VentureDatabase) {
-  const organizations = await unwrap<Row[]>(database.from("venture_organizations").select("*").eq("verified", true).in("organization_type", ["investor", "fa", "government"]));
+  const organizations = await unwrap<Row[]>(database.from("venture_organizations").select("*").eq("verified", true).in("organization_type", ["company", "investor", "fa", "government"]));
   const profiles = organizations.length ? await unwrap<Row[]>(database.from("venture_organization_profiles").select("*").in("organization_legacy_id", organizations.map((organization) => text(organization, "legacy_id")))) : [];
   const profileMap = new Map(profiles.map((profile) => [text(profile, "organization_legacy_id"), profile]));
-  const rank: Record<string, number> = { investor: 1, fa: 2, government: 3 };
+  const rank: Record<string, number> = { company: 0, investor: 1, fa: 2, government: 3 };
   return organizations.sort((a, b) => (rank[text(a, "organization_type")] ?? 9) - (rank[text(b, "organization_type")] ?? 9) || text(a, "name").localeCompare(text(b, "name"))).map((organization) => {
     const profile = profileMap.get(text(organization, "legacy_id"));
-    return { id: text(organization, "legacy_id"), name: text(organization, "name"), type: text(organization, "organization_type"), tagline: profile ? text(profile, "tagline") : "", description: profile ? text(profile, "description") : "", region: profile ? text(profile, "region") : "", focus: profile ? listValue(profile.focus) : [] };
+    return { id: text(organization, "legacy_id"), name: text(organization, "name"), type: text(organization, "organization_type"), tagline: profile ? text(profile, "tagline") : "", description: profile ? text(profile, "description") : "", region: profile ? text(profile, "region") : "", focus: profile ? listValue(profile.focus) : [], companyStatus: profile ? (nullableText(profile, "company_status") ?? "") : "", foundedYear: profile ? (nullableText(profile, "founded_year") ?? "") : "", latestRound: profile ? (nullableText(profile, "latest_round") ?? "") : "", lastFundingAt: profile ? (nullableText(profile, "last_funding_at") ?? "") : "", valuation: profile ? (nullableText(profile, "valuation_label") ?? "") : "", institutionKind: profile ? (nullableText(profile, "institution_kind") ?? "") : "", fundCurrency: profile ? (nullableText(profile, "fund_currency") ?? "") : "", investmentStage: profile ? (nullableText(profile, "investment_stage") ?? "") : "", investedCount: profile ? nullableNumber(profile, "invested_count") : null, ipoCount: profile ? nullableNumber(profile, "ipo_count") : null, dealCount: profile ? nullableNumber(profile, "deal_count") : null, esg: profile ? bool(profile, "esg") : false };
   });
 }
 

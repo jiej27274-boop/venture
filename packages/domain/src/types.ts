@@ -1,4 +1,4 @@
-export type OrganizationType = "project" | "investor" | "fa" | "government" | "user" | "platform";
+export type OrganizationType = "project" | "company" | "investor" | "fa" | "government" | "user" | "platform";
 
 export type OrganizationRole =
   | "platform_admin"
