@@ -18,6 +18,18 @@ function mysqlConfig() {
 const pool = createPool({ ...mysqlConfig(), waitForConnections: true, connectionLimit: 2, queueLimit: 0, multipleStatements: true, charset: "utf8mb4", timezone: "Z" });
 try {
   await pool.query(await readFile(schemaPath, "utf8"));
+  const [usernameColumns] = await pool.query(
+    "SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'venture_auth_accounts' AND column_name = 'username' LIMIT 1",
+  );
+  if (!usernameColumns.length) {
+    await pool.query("ALTER TABLE venture_auth_accounts ADD COLUMN username VARCHAR(191) NULL UNIQUE AFTER legacy_user_id");
+  }
+  const [sessionTypeColumns] = await pool.query(
+    "SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'venture_auth_sessions' AND column_name = 'session_type' LIMIT 1",
+  );
+  if (!sessionTypeColumns.length) {
+    await pool.query("ALTER TABLE venture_auth_sessions ADD COLUMN session_type VARCHAR(16) NOT NULL DEFAULT 'public' AFTER organization_legacy_id");
+  }
   const [indexes] = await pool.query(
     "SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'venture_email_otps' AND index_name = 'venture_email_otps_email_purpose_unique' LIMIT 1",
   );

@@ -1,7 +1,22 @@
+export const ADMIN_SESSION_KEY = "venture_admin_session";
+
+export function getAdminSession() {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(ADMIN_SESSION_KEY);
+}
+
+export function clearAdminSession() {
+  if (typeof window !== "undefined") window.localStorage.removeItem(ADMIN_SESSION_KEY);
+}
+
+export function notifyAdminAuthChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("venture-admin-auth-changed"));
+}
+
 function requestHeaders(input?: HeadersInit) {
   const headers = new Headers(input);
   if (!headers.has("content-type")) headers.set("content-type", "application/json");
-  const session = typeof window !== "undefined" ? window.localStorage.getItem("venture_session") : null;
+  const session = getAdminSession();
   if (session && !headers.has("authorization")) headers.set("authorization", `Bearer ${session}`);
   return headers;
 }
@@ -177,6 +192,9 @@ export interface AdminNotification {
 }
 
 export const api = {
+  adminLogin: (input: { username: string; password: string }) => request<{ session: string; actor: { displayName?: string; organizationName?: string } }>("/api/admin/login", { method: "POST", body: JSON.stringify(input) }),
+  adminSession: () => request<{ actor: { displayName?: string; organizationName?: string; roles: string[] } }>("/api/admin/session"),
+  adminLogout: () => request<{ status: "signed_out" }>("/api/admin/logout", { method: "POST" }),
   overview: () => request<Overview>("/api/admin/overview"),
   projects: () => request<{ projects: ProjectSummary[] }>("/api/admin/project-submissions"),
   createAdminProject: (input: AdminProjectInput) => request<{ project: ProjectSummary }>("/api/admin/project-submissions", { method: "POST", body: JSON.stringify(input) }),
@@ -199,7 +217,7 @@ export const api = {
     request<{ article: AdminArticle }>("/api/admin/articles", { method: "POST", body: JSON.stringify(input) }),
   updateArticle: (id: string, input: Partial<Pick<AdminArticle, "title" | "summary" | "content" | "category" | "status">>) =>
     request<{ article: AdminArticle }>(`/api/admin/articles/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
-  notifications: (unreadOnly = false) => request<{ notifications: AdminNotification[]; unreadCount: number }>(`/api/me/notifications${unreadOnly ? "?unreadOnly=true" : ""}`),
-  markNotificationRead: (id: string) => request<{ read: boolean }>(`/api/me/notifications/${encodeURIComponent(id)}/read`, { method: "POST" }),
-  markAllNotificationsRead: () => request<{ read: number }>("/api/me/notifications/read-all", { method: "POST" }),
+  notifications: (unreadOnly = false) => request<{ notifications: AdminNotification[]; unreadCount: number }>(`/api/admin/notifications${unreadOnly ? "?unreadOnly=true" : ""}`),
+  markNotificationRead: (id: string) => request<{ read: boolean }>(`/api/admin/notifications/${encodeURIComponent(id)}/read`, { method: "POST" }),
+  markAllNotificationsRead: () => request<{ read: number }>("/api/admin/notifications/read-all", { method: "POST" }),
 };

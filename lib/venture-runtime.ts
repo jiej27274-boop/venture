@@ -33,6 +33,7 @@ export async function handleVentureApi(request: Request) {
 }
 
 export function runtimeStatus() {
+  if (process.env.NODE_ENV === "production") return { ok: true, runtime: "next-app-router" };
   const mysql = mysqlRuntimeStatus();
   return {
     ok: true,
