@@ -1305,7 +1305,7 @@ export default function App({ projectId, onLeaveDetail }: { projectId?: string; 
     } catch (reason) { setError(reason instanceof Error ? reason.message : "收藏失败"); }
   };
   let content = projectId ? <ProjectDetailPage projectId={projectId} go={go}/> : <HomeView projects={projects} organizations={organizations} contacts={contacts} go={go} openProject={openProject} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
-  if (view === "projects") content = <ProjectsView projects={projects} openProject={openProject} initialQuery={searchQuery} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
+  if (!projectId && view === "projects") content = <ProjectsView projects={projects} openProject={openProject} initialQuery={searchQuery} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
   if (view === "organizations") content = <OrganizationsView organizations={organizations} initialQuery={searchQuery} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
   if (view === "institutions") content = <InstitutionsView organizations={organizations} favoriteKeys={favoriteKeys} onToggleFavorite={toggleFavorite}/>;
   if (view === "government") content = <GovernmentView contacts={contacts} openContact={(contact) => setContactModal({ open: true, contact })} initialQuery={searchQuery}/>;
