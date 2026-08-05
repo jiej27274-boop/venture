@@ -648,7 +648,21 @@ main {
   gap: 12px;
 }
 .admin-shell .account-review-row > .status-chip { justify-self: start; white-space: nowrap; }
-.admin-shell .account-review-row > .account-actions { min-width: 0; justify-content: flex-end; align-items: center; gap: 6px; }
+.admin-shell .account-review-row > .account-actions {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+.admin-shell .account-actions button + button { margin-left: 0; }
 .admin-shell .account-actions .primary-button,
 .admin-shell .account-actions .secondary-button { flex: 0 0 auto; min-width: 0; padding: 7px 10px; white-space: nowrap; }
 

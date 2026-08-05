@@ -604,7 +604,7 @@ export default function App() {
   const updateArticleStatus = async (id: string, status: AdminArticle["status"]) => { try { await api.updateArticle(id, { status }); setArticles((await api.articles()).articles); await refreshOverview(); flash(status === "published" ? "资讯已发布" : "资讯已下架"); } catch (requestError) { flash(requestError instanceof Error ? requestError.message : "资讯状态更新失败", "error"); } };
   const markNotificationRead = async (id: string) => { await api.markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, readAt: new Date().toISOString() } : item)); setUnreadCount((count) => Math.max(0, count - 1)); };
   const markAllNotificationsRead = async () => { await api.markAllNotificationsRead(); setNotifications((items) => items.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() }))); setUnreadCount(0); };
-  const logoutAdmin = async () => { try { await api.adminLogout(); } catch { /* session may already be expired */ } finally { clearAdminSession(); window.location.assign("/admin"); } };
+  const logoutAdmin = async () => { try { await api.adminLogout(); } catch { /* session may already be expired */ } finally { clearAdminSession(); window.location.assign("/"); } };
 
   const title = useMemo(() => navigation.find((item) => item.id === activeView)?.label ?? "运营总览", [activeView]);
   let content = <EmptyState message="正在载入平台数据…" />;
